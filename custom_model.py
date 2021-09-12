@@ -24,20 +24,20 @@ def update_frequency(layer, activation_data):
 
 class CustomModel(keras.Model):
     def __init__(self):
-        tf.print("enter CustomModel.__init__")
         super(CustomModel, self).__init__()
-        #self.input_layer = tf.keras.Input(shape=(28,28), name="input")
+        self.input_layer = tf.keras.Input(shape=(28,28), name="input")
         self.flatten = tf.keras.layers.Flatten(name="flatten")
         self.custom_dense = cl.MyDense(100, activation=tf.nn.relu)
         self.output_layer = keras.layers.Dense(10, activation=tf.nn.softmax, name="output")
+        
     
     def call(self, inputs):
-        tf.print("enter CustomModel.call")
+        #tf.print("enter CustomModel.call")
         flatten_data = self.flatten(inputs)
         dense1_out = self.custom_dense(flatten_data)
         update_frequency(self.custom_dense,dense1_out)
         return self.output_layer(dense1_out)
-
+"""
     def train_step(self, data):
         tf.print("enter CustomModel.call")
         # Unpack the data. Its structure depends on your model and
@@ -66,8 +66,7 @@ class CustomModel(keras.Model):
         # Return a dict mapping metric names to current value
         return {m.name: m.result() for m in self.metrics}
     
-    
-"""  
+     
 def frequency_activation(self,X):
         kernel_dim = self.kernel.shape
         zero_wts = tf.zeros(kernel_dim[1])
