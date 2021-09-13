@@ -21,7 +21,12 @@ mnist = keras.datasets.mnist
 (train_images, train_labels), (test_images, test_labels) = mnist.load_data()
 
 # Normalize the input image so that each pixel value is between 0 and 1.
-train_images = train_images / 255.0
+# create validation data set
+validation_sz = 5000
+valid_img, train_img = train_images[:validation_sz] / 255.0,\
+                        train_images[validation_sz:] / 255.0
+valid_labels, train_labels = train_labels[:validation_sz],\
+                            train_labels[validation_sz:]
 test_images = test_images / 255.0
 
 def create_model():
@@ -48,8 +53,9 @@ run_log_dir = get_run_logdir("standard_")
 tensorboard_cb = keras.callbacks.TensorBoard(run_log_dir)
 standard_model = create_model()
 standard_model.compile(optimizer="adam", loss="sparse_categorical_crossentropy", metrics=["accuracy"], run_eagerly=True)
-standard_history = standard_model.fit(train_images, train_labels, 
+standard_history = standard_model.fit(train_img, train_labels, 
                                       epochs=no_of_epochs,
+                                      validation_data=(valid_img,valid_labels),
                                       callbacks=[tensorboard_cb])
 
 run_log_dir = get_run_logdir("sparse_")
@@ -57,10 +63,13 @@ tensorboard_cb = keras.callbacks.TensorBoard(run_log_dir)
 custom_model = cm.CustomModel()
 custom_model.compile(optimizer="adam", loss="sparse_categorical_crossentropy", metrics=["accuracy"], run_eagerly=True)
 weight_print = cc.MyCallback(80)
-custom_history = custom_model.fit(train_images, train_labels, 
-                                  epochs=no_of_epochs, 
+custom_history = custom_model.fit(train_img, train_labels, 
+                                  epochs=no_of_epochs,
+                                  validation_data=(valid_img,valid_labels),
                                   callbacks=[weight_print,tensorboard_cb])
 
+standard_model.evaluate(test_images,test_labels)
+custom_model.evaluate(test_images,test_labels)
 
 #cn.create_and_store_model(train_images, train_labels)
 #ct.custom_training(model,train_images,train_labels)

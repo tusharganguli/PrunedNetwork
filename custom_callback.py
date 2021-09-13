@@ -24,7 +24,11 @@ class MyCallback(keras.callbacks.Callback):
                 weights = layer.get_weights()
                 bottom_n = tf.cast(weights[2].shape[0] * (1-(self.neuron_pct/100)),dtype=tf.int32)
                 bottom_n_idx = np.argpartition(weights[2], bottom_n)
+                # initialize the weights to be removed to 0
                 weights[0][:][bottom_n_idx[:bottom_n]] = 0
+                # initialize the bias to be removed to 0
+                weights[1][bottom_n_idx[:bottom_n]] = 0
+                # reset the neuron frequency variables after each epoc
                 weights[2][:] = 0
                 layer.set_weights(weights)
                 
