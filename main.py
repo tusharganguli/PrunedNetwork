@@ -5,74 +5,17 @@ Created on Tue Aug 31 17:54:36 2021
 
 @author: tushar
 """
-import tensorflow as tf
-from tensorflow import keras
-import custom_layer as cl
-import custom_network as cn
-import custom_training as ct
-import custom_model as cm
-import custom_callback as cc
-import display as disp
 
-##############################################################################
+import model_run as mr
 
-# Load MNIST dataset
-mnist = keras.datasets.mnist
-(train_images, train_labels), (test_images, test_labels) = mnist.load_data()
+model_run = mr.ModelRun()
+start_epoch=5
+end_epoch=6
+inc = 1
 
-# Normalize the input image so that each pixel value is between 0 and 1.
-# create validation data set
-validation_sz = 5000
-valid_img, train_img = train_images[:validation_sz] / 255.0,\
-                        train_images[validation_sz:] / 255.0
-valid_labels, train_labels = train_labels[:validation_sz],\
-                            train_labels[validation_sz:]
-test_images = test_images / 255.0
-
-def create_model():
-    input_layer = keras.Input(shape=(28,28), name="input")
-    flatten = keras.layers.Flatten(name="flatten")(input_layer)
-    mydense_1 = keras.layers.Dense(100,activation=tf.nn.relu, name="dense" )(flatten)
-    output_layer = keras.layers.Dense(10, activation=tf.nn.softmax, name="output")(mydense_1)
-    model = keras.models.Model(inputs=input_layer,outputs=output_layer)
-    return model
-
-tf.keras.backend.clear_session()
-no_of_epochs = 5
-
-import os
-root_log_dir = os.path.join(os.curdir,"my_logs")
-
-def get_run_logdir(model_type):
-    import time
-    run_id = time.strftime("run_%Y_%m_%d-%H_%M_%S")
-    run_id = model_type+run_id
-    return os.path.join(root_log_dir,run_id)
-
-run_log_dir = get_run_logdir("standard_")
-tensorboard_cb = keras.callbacks.TensorBoard(run_log_dir)
-standard_model = create_model()
-standard_model.compile(optimizer="adam", loss="sparse_categorical_crossentropy", metrics=["accuracy"], run_eagerly=True)
-standard_history = standard_model.fit(train_img, train_labels, 
-                                      epochs=no_of_epochs,
-                                      validation_data=(valid_img,valid_labels),
-                                      callbacks=[tensorboard_cb])
-
-run_log_dir = get_run_logdir("sparse_")
-tensorboard_cb = keras.callbacks.TensorBoard(run_log_dir)
-custom_model = cm.CustomModel()
-custom_model.compile(optimizer="adam", loss="sparse_categorical_crossentropy", metrics=["accuracy"], run_eagerly=True)
-weight_print = cc.MyCallback(80)
-custom_history = custom_model.fit(train_img, train_labels, 
-                                  epochs=no_of_epochs,
-                                  validation_data=(valid_img,valid_labels),
-                                  callbacks=[weight_print,tensorboard_cb])
-
-standard_model.evaluate(test_images,test_labels)
-custom_model.evaluate(test_images,test_labels)
-
-#cn.create_and_store_model(train_images, train_labels)
-#ct.custom_training(model,train_images,train_labels)
-#model = cn.load_model()
-#cn.evaluate_model(model, test_images, test_labels)
-
+for num_layer in range(1,2):
+    for epoch in range(start_epoch,end_epoch,inc):    
+            model_run.run_model("standard",epochs=epoch,
+                                num_layers=num_layer,num_runs=1)
+            model_run.run_model("sparse",epochs=epoch, num_layers=num_layer, 
+                                num_runs=1, pruning_pct=20, pruning_stage=500)

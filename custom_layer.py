@@ -16,11 +16,11 @@ class MyDense(keras.layers.Layer):
         self.activation = keras.activations.get(activation)
         
         
+        
     def build(self, input_shape):
-        tf.print("enter MyDense.build")
         # initialize the weights in this layer
         self.kernel = self.add_weight(name="kernel",shape=[input_shape[-1],self.units],
-                                      initializer="glorot_normal", trainable=True)
+                                      initializer="glorot_uniform", trainable=True)
         #initialize the bias
         self.bias = self.add_weight(name="bias",shape=[self.units], 
                                     initializer="zeros", trainable=True)
@@ -42,5 +42,4 @@ class MyDense(keras.layers.Layer):
     def get_config(self):
         base_config = super().get_config()
         return {**base_config, "units":self.units, 
-                "activation": keras.activations.serialize(self.activation),
-                "neuron_freq":self.neuron_freq}
+                "activation": keras.activations.serialize(self.activation)}
