@@ -35,7 +35,8 @@ class ModelRun():
         self.metrics = "accuracy"
         
     def run_model(self, run_type, epochs, num_layers, 
-                  num_runs, pruning_pct=0, pruning_stage=500 ):
+                  num_runs, pruning_type="weights", 
+                  pruning_pct=0, pruning_stage=500 ):
         
         history_list = []
         evaluate_list = []
@@ -65,7 +66,7 @@ class ModelRun():
                               metrics=[self.metrics,custom_metrics], 
                               run_eagerly=True)
     
-                sparse_cb = cc.MyCallback(pruning_pct, pruning_stage)
+                sparse_cb = cc.MyCallback(pruning_type,pruning_pct, pruning_stage)
                 history = model.fit(self.train_img, 
                                     self.train_labels, 
                                     epochs=epochs,
