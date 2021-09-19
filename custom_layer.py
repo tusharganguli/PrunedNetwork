@@ -32,7 +32,6 @@ class MyDense(keras.layers.Layer):
         
         
     def call(self, X):
-        #tf.print("enter MyDense.call")
         activation_result = self.activation(tf.matmul(X,self.kernel) + self.bias)
         return activation_result
     
