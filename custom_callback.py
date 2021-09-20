@@ -16,7 +16,7 @@ import data
 import sparse_network as sn
 
 class MyCallback(keras.callbacks.Callback):
-    def __init__(self, pruning_type, pruning_pct, pruning_stage):
+    def __init__(self, pruning_type, pruning_pct, pruning_chg, pruning_stage):
         """ Save params in constructor
         """
         if pruning_type != "neurons" and pruning_type != "weights":
@@ -24,6 +24,7 @@ class MyCallback(keras.callbacks.Callback):
             
         self.pruning_type = pruning_type
         self.pruning_pct = pruning_pct
+        self.pruning_chg = pruning_chg
         self.pruning_stage = pruning_stage
         data_obj = data.Data(keras.datasets.mnist)
         (valid_img,train_img,valid_labels,
@@ -36,7 +37,8 @@ class MyCallback(keras.callbacks.Callback):
             self.sn.sparsify_neurons(self.model,self.pruning_pct)
         elif self.pruning_type == "weights":
             self.sn.sparsify_weights(self.model,self.pruning_pct)
-    
+        self.pruning_pct += self.pruning_chg
+        
     def on_train_begin(self, logs=None):
         self.__create_functors()
             
@@ -53,7 +55,6 @@ class MyCallback(keras.callbacks.Callback):
             
             count = 0
             for func in self.functors:
-                #tf.print("Layer Name: ",layer_names[count])
                 activation_data = func(shuffle_data)
                 self.__update_frequency(self.layer_obj[count],activation_data[0])
                 count += 1

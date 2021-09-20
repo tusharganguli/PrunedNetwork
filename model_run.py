@@ -24,6 +24,7 @@ class ModelRun():
         data_obj = data.Data(data_set)
         (self.valid_img,self.train_img,self.valid_labels,
          self.train_labels,self.test_images,self.test_labels) = data_obj.load_data()
+        
         self.df = self.__create_data_frame()
         
         self.log_dir = "my_logs/"#+str(num_layers)+ "/" + str(epochs) + "/" + str(run_type)
@@ -36,7 +37,8 @@ class ModelRun():
         
     def run_model(self, run_type, epochs, num_layers, 
                   num_runs, pruning_type="weights", 
-                  pruning_pct=0, pruning_stage=500 ):
+                  pruning_pct=0, pruning_change=0,
+                  pruning_stage=500 ):
         
         history_list = []
         evaluate_list = []
@@ -51,22 +53,28 @@ class ModelRun():
                 run_log_dir = self.__get_run_logdir(self.log_dir,log_file_name)
                 tensorboard_cb = keras.callbacks.TensorBoard(run_log_dir)
                 model.compile(optimizer=self.optimizer, loss=self.loss, 
-                              metrics=[self.metrics], run_eagerly=True)
+                              metrics=[self.metrics])
                 history = model.fit(self.train_img, self.train_labels, 
                                     epochs=epochs,
                                     validation_data=(self.valid_img,self.valid_labels),
                                     callbacks=[tensorboard_cb])
             elif run_type == "sparse":
+                if pruning_change > 0:
+                    log_file_name = "increasing_" + log_file_name
+                elif pruning_change < 0:
+                    log_file_name = "decreasing_" + log_file_name    
+                log_file_name = pruning_type + "_" + log_file_name
                 log_file_name = log_file_name + "_pruning_pct_" + str(pruning_pct)
                 run_log_dir = self.__get_run_logdir(self.log_dir,log_file_name)
                 tensorboard_cb = keras.callbacks.TensorBoard(run_log_dir)
                 custom_metrics = cm.CustomMetrics(name="batch_size")
                 model.compile(optimizer=self.optimizer, 
                               loss=self.loss,
-                              metrics=[self.metrics,custom_metrics], 
-                              run_eagerly=True)
+                              metrics=[self.metrics,custom_metrics]) 
+                              #run_eagerly=True)
     
-                sparse_cb = cc.MyCallback(pruning_type,pruning_pct, pruning_stage)
+                sparse_cb = cc.MyCallback(pruning_type,pruning_pct, 
+                                          pruning_change, pruning_stage)
                 history = model.fit(self.train_img, 
                                     self.train_labels, 
                                     epochs=epochs,
@@ -119,7 +127,7 @@ class ModelRun():
      
     def __create_data_frame(self):
         
-        df = pd.DataFrame(columns = ['Run Type',
+        df = pd.DataFrame(columns = ['Model Type',
                                      'No Of Epochs', 
                                      'Intermediate Layers',
                                      'Pct Pruning', 
@@ -148,7 +156,7 @@ class ModelRun():
         flatten = keras.layers.Flatten(name="flatten")(input_layer)
         l1_neurons = 300
         l2_neurons = 100
-        l3_neurons = 100
+        l3_neurons = 50
         
         if run_type == "standard":    
             dense_1 = keras.layers.Dense(l1_neurons,activation=tf.nn.relu, name="dense_1" )(flatten)
