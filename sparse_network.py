@@ -80,4 +80,40 @@ class SparseNetwork:
             all_weights[idx][2][:] = 0 #sorted_arr[start:end,3]
             layer_list[idx].set_weights(all_weights[idx])
             
+    def sparsify_neuron_weights(self, model, pruning_pct):
+        total_len = 0
+        all_weights = []
+        layer_cnt = 0
+        layer_list = []
+        neuron_wts_lst = []
+        wts_lst = []
+        neuron_dim = []
         
+        for layer in model.layers:
+            if isinstance(layer,cl.MyDense) == True:
+                weights = layer.get_weights()
+                dim = weights[2].shape[0]
+                neuron_wts = (weights[0].T * np.reshape(weights[2],(dim,1))).T
+                neuron_wts = neuron_wts.flatten()
+                neuron_wts_lst.extend(neuron_wts)
+                wts_lst.extend(weights[0].flatten())
+                neuron_dim.append(weights[0].shape)
+                total_len += weights[0].shape[0]*weights[0].shape[1]
+                layer_list.append(layer)
+                all_weights.append(weights)
+                layer_cnt += 1
+        bottom_n = tf.cast(total_len * (pruning_pct/100),dtype=tf.int32)
+        neuron_wts_arr = np.array(neuron_wts_lst)
+        idx = neuron_wts_arr.argsort()[:bottom_n]
+        wts_arr = np.array(wts_lst)
+        wts_arr[idx] = 0
+        start = 0
+        offset = 0
+        for idx in range(len(layer_list)):
+            dim = neuron_dim[idx]
+            offset += neuron_dim[idx][0]* neuron_dim[idx][1]
+            wts = np.reshape(wts_arr[start:offset],dim)
+            all_weights[idx][0] = wts
+            all_weights[idx][2][:] = 0
+            start = offset
+            layer_list[idx].set_weights(all_weights[idx])

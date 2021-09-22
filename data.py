@@ -5,6 +5,7 @@ Created on Fri Sep 17 02:10:47 2021
 
 @author: tushar
 """
+import tensorflow as tf
 
 class Data():
     def __init__(self,dataset,validation_split=0.1):
@@ -14,7 +15,7 @@ class Data():
     def load_data(self):
         # Load MNIST dataset
         (train_images, train_labels), (test_images, test_labels) = self.dataset.load_data()
-        validation_sz = train_images.shape[0] * self.validation_split
+        validation_sz = tf.cast(train_images.shape[0] * self.validation_split, dtype=tf.int32)
         # Normalize the input image so that each pixel value is between 0 and 1.
         # create validation data set
         valid_img, train_img = train_images[:validation_sz] / 255.0,\

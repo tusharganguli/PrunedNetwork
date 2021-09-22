@@ -20,7 +20,8 @@ import custom_metrics as cm
 class ModelRun():
     
     def __init__(self,data_set = keras.datasets.mnist):
-        # Load MNIST dataset
+        # Load dataset
+        self.data_set = data_set
         data_obj = data.Data(data_set)
         (self.valid_img,self.train_img,self.valid_labels,
          self.train_labels,self.test_images,self.test_labels) = data_obj.load_data()
@@ -36,9 +37,9 @@ class ModelRun():
         self.metrics = "accuracy"
         
     def run_model(self, run_type, epochs, num_layers, 
-                  num_runs, pruning_type="weights", 
+                  num_runs, pruning_type, 
                   pruning_pct=0, pruning_change=0,
-                  pruning_stage=500 ):
+                  neuron_update_freq=1, sparse_update_freq=1 ):
         
         history_list = []
         evaluate_list = []
@@ -73,8 +74,9 @@ class ModelRun():
                               metrics=[self.metrics,custom_metrics]) 
                               #run_eagerly=True)
     
-                sparse_cb = cc.MyCallback(pruning_type,pruning_pct, 
-                                          pruning_change, pruning_stage)
+                sparse_cb = cc.MyCallback(self.data_set, pruning_type,
+                                          pruning_pct, pruning_change, 
+                                          neuron_update_freq,sparse_update_freq)
                 history = model.fit(self.train_img, 
                                     self.train_labels, 
                                     epochs=epochs,
@@ -87,7 +89,7 @@ class ModelRun():
         (train_loss,train_accuracy, 
          val_loss, val_accuracy,
          test_loss, test_accuracy) = self.__generate_avg(history_list, evaluate_list)
-        data = [run_type, epochs,
+        data = [run_type, pruning_type, epochs,
                 num_layers, pruning_pct,
                 train_loss,train_accuracy, 
                 val_loss, val_accuracy,
@@ -128,6 +130,7 @@ class ModelRun():
     def __create_data_frame(self):
         
         df = pd.DataFrame(columns = ['Model Type',
+                                     'Pruning Type',
                                      'No Of Epochs', 
                                      'Intermediate Layers',
                                      'Pct Pruning', 
@@ -149,14 +152,15 @@ class ModelRun():
         return os.path.join(log_dir,run_id)
         
     def __create_model(self,run_type,num_layers):
-        if num_layers > 3:
-            raise ValueError("Maximum 3 layers supported")
+        if num_layers > 4:
+            raise ValueError("Maximum 4 layers supported")
             
         input_layer = keras.Input(shape=(28,28), name="input")
         flatten = keras.layers.Flatten(name="flatten")(input_layer)
         l1_neurons = 300
         l2_neurons = 100
-        l3_neurons = 50
+        l3_neurons = 100
+        l4_neurons = 50
         
         if run_type == "standard":    
             dense_1 = keras.layers.Dense(l1_neurons,activation=tf.nn.relu, name="dense_1" )(flatten)
@@ -167,6 +171,9 @@ class ModelRun():
             if num_layers >= 3:
                 dense_3 = keras.layers.Dense(l3_neurons,activation=tf.nn.relu, name="dense_3" )(dense_2)
                 final_dense = dense_3
+            if num_layers >= 4:
+                dense_4 = keras.layers.Dense(l4_neurons,activation=tf.nn.relu, name="dense_4" )(dense_3)
+                final_dense = dense_4
         
         if run_type == "sparse":    
             dense_1 = cl.MyDense(l1_neurons,activation=tf.nn.relu, name="dense_1" )(flatten)
@@ -177,6 +184,9 @@ class ModelRun():
             if num_layers >= 3:
                 dense_3 = cl.MyDense(l3_neurons,activation=tf.nn.relu, name="dense_3" )(dense_2)
                 final_dense = dense_3
+            if num_layers >= 4:
+                dense_4 = cl.MyDense(l4_neurons,activation=tf.nn.relu, name="dense_4" )(dense_3)
+                final_dense = dense_4
         
         output_layer = keras.layers.Dense(10, activation=tf.nn.softmax, name="output")(final_dense)
         model = keras.models.Model(inputs=input_layer,outputs=output_layer)

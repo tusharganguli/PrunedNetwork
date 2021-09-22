@@ -11,45 +11,69 @@ from tensorflow import keras
 import numpy as np
 from tensorflow.keras import backend as K
 
+import statistics
+
 import custom_layer as cl
 import data
 import sparse_network as sn
 
 class MyCallback(keras.callbacks.Callback):
-    def __init__(self, pruning_type, pruning_pct, pruning_chg, pruning_stage):
+    def __init__(self, data_set, pruning_type, pruning_pct, 
+                 pruning_chg, neuron_update_freq, sparse_update_freq):
         """ Save params in constructor
         """
-        if pruning_type != "neurons" and pruning_type != "weights":
+        if pruning_type != "neurons" and pruning_type != "weights"\
+        and pruning_type != "neuronweights":
             raise ValueError("Invalid pruning type supplied in callback")
             
         self.pruning_type = pruning_type
         self.pruning_pct = pruning_pct
         self.pruning_chg = pruning_chg
-        self.pruning_stage = pruning_stage
-        data_obj = data.Data(keras.datasets.mnist)
+        self.neuron_update_freq = neuron_update_freq
+        self.sparse_update_freq = sparse_update_freq
+        data_obj = data.Data(data_set)
         (valid_img,train_img,valid_labels,
          train_labels,test_images,test_labels) = data_obj.load_data()
         self.train_img = train_img
         self.sn = sn.SparseNetwork()
+        self.acc_lst = []
+        self.var_lst = []
+        self.start = self.end = 0
+        self.roc_lst = []
+        self.prev_acc = 0.0000001
         
-    def on_epoch_end(self, epoch, logs=None):
+    def on_epoch_begin(self, epoch, logs=None):
+        if (epoch+1)%self.sparse_update_freq != 0 or epoch == 0:
+            return
+        self.acc_lst = [0.8]
+        self.var_lst = []
+        self.start = self.end = 0
+        self.roc_lst = []
+        
+    #def on_epoch_end(self, epoch, logs=None):
         if self.pruning_type == "neurons":
             self.sn.sparsify_neurons(self.model,self.pruning_pct)
         elif self.pruning_type == "weights":
             self.sn.sparsify_weights(self.model,self.pruning_pct)
+        elif self.pruning_type == "neuronweights":
+            self.sn.sparsify_neuron_weights(self.model,self.pruning_pct)
         self.pruning_pct += self.pruning_chg
         
     def on_train_begin(self, logs=None):
         self.__create_functors()
-            
+        
+        
     def on_train_batch_end( self, batch, logs=None):
         accuracy = logs.get("accuracy")
         if accuracy < 0.8:
             return
         
+        #if self.__variance(accuracy) < 0.1:
+        #    return
+        
         batch_sz = logs.get("batch_size")
         
-        if batch%self.pruning_stage == 0:
+        if (batch+1)%self.neuron_update_freq == 0:
             np.random.shuffle(self.train_img)
             shuffle_data  = self.train_img[0:batch_sz]
             
@@ -58,7 +82,26 @@ class MyCallback(keras.callbacks.Callback):
                 activation_data = func(shuffle_data)
                 self.__update_frequency(self.layer_obj[count],activation_data[0])
                 count += 1
-                
+    
+    def __variance( self, accuracy):
+        """
+        if self.end >= 7:
+            self.start += 1
+        self.end +=1
+        self.acc_lst.append(accuracy)
+        if self.end-self.start == 1:
+            return 0.2
+        """
+        self.acc_lst.append(accuracy)
+        var = statistics.variance(self.acc_lst)
+        self.var_lst.append(var)
+        
+        # calculate roc
+        roc = 100*((accuracy/self.prev_acc)-1)
+        self.roc_lst.append(roc)
+        self.prev_acc = accuracy
+        return 0.2
+        
     def __create_functors(self):
         inp = self.model.input
         layer_names = []
