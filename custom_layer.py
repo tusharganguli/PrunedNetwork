@@ -28,6 +28,11 @@ class MyDense(keras.layers.Layer):
         self.neuron_freq = self.add_weight(name="neuron_freq", shape=[self.units], 
                                            initializer="zeros", dtype=tf.int32,
                                            trainable=False)
+        self.kernel_access = self.add_weight(name="kernel_access",
+                                             shape=[input_shape[-1],self.units],
+                                             initializer="zeros",
+                                             dtype=tf.int32,
+                                             trainable=False)
         super().build(input_shape)
         
         

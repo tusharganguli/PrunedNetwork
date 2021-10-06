@@ -19,9 +19,16 @@ neuron_freq = 100
 # number of epochs after which the sparsification will occur
 sparse_freq = 2
 
-model_run = mr.ModelRun(db)
+model_run = mr.ModelRun(db, "custom")
 
 
+model_run.run_model("sparse",epochs=epoch_cnt, num_layers=layer_cnt, 
+                        num_runs=run_cnt, pruning_type="weights",
+                        pruning_pct=10, pruning_change=0,
+                        neuron_update_freq=neuron_freq,
+                        sparse_update_freq=sparse_freq)
+
+"""
 model_run.run_model("standard",epochs=epoch_cnt,
                     num_layers=layer_cnt,num_runs=run_cnt, pruning_type="none")
 
@@ -119,4 +126,4 @@ model_run.run_model("sparse",epochs=epoch_cnt, num_layers=layer_cnt,
                     sparse_update_freq=sparse_freq)
 
 model_run.write_to_file(filename = "TrainingResults.xls")
-
+"""

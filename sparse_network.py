@@ -11,8 +11,7 @@ import numpy as np
 import custom_layer as cl
 
 class SparseNetwork:
-    def __init__(self):
-        pass
+    magic_number = 0
             
     def sparsify_neurons(self, model, pruning_pct):
         myList = []
@@ -43,7 +42,7 @@ class SparseNetwork:
             all_weights[idx][2][:] = 0 #sorted_arr[start:end,3]
             sorted_lst[start][1].set_weights(all_weights[idx])
             start = end
-        
+    """
     def sparsify_weights(self, model, pruning_pct):
         myList = []
         sorted_lst = []
@@ -68,18 +67,144 @@ class SparseNetwork:
         for idx in range(len(sorted_arr)):
             # initialize the weights to be removed to 0
             layer_idx = sorted_arr[idx][0]
-            col_length = all_weights[layer_idx][0].shape[0]
+            kernel_access = all_weights[layer_idx][3]
+            wts_idx = np.argwhere(kernel_access == 0)
+            col_length = len(wts_idx)
             total_len += col_length
+
             if total_len < bottom_n:
-                all_weights[layer_idx][0][:,sorted_arr[idx][2]] = 0
+                all_weights[layer_idx][0][wts_idx] = self.magic_number
+                all_weights[layer_idx][3][wts_idx] = 1
             else:
-                all_weights[layer_idx][0][:col_length,sorted_arr[idx][2]] = 0
+                all_weights[layer_idx][0][wts_idx[:col_length]] = self.magic_number
+                all_weights[layer_idx][3][wts_idx[:col_length]] = 1
                 break
             
         for idx in range(len(layer_list)):
             all_weights[idx][2][:] = 0 #sorted_arr[start:end,3]
             layer_list[idx].set_weights(all_weights[idx])
+
+    def sparsify_weights(self, model, pruning_pct):
+        myList = []
+        sorted_lst = []
+        total_len = 0
+        all_weights = []
+        layer_cnt = 0
+        neuron_len = []
+        layer_list = []
+        for layer in model.layers:
+            if isinstance(layer,cl.MyDense) == True:
+                weights = layer.get_weights()
+                all_weights.append(weights)
+                neuron_len = weights[2].shape[0]
+                rows = weights[0].shape[0]
+                total_len += rows
+                layer_list.append(layer)
+                myList.extend([(layer_cnt,weights[2][i], weights[0][j,i], weights[3][j,i],j,i) for i in range(neuron_len) for j in range(rows)])
+                layer_cnt += 1
+        myList = [x for x in myList if x[3] == 0]
+        sorted_lst = sorted(myList,key=lambda x: (x[1]))
+        bottom_n = tf.cast(total_len * (pruning_pct/100),dtype=tf.int32)
+        sorted_arr = np.array(sorted_lst)
+        sorted_arr[:,2] = abs(sorted_arr[:,2])
+        
+        total_len = 0
+        start = 0
+        wts = []
+        while total_len < bottom_n:
+            # initialize the weights to be removed to 0
+            min_value = sorted_arr[start,1]
+            min_idx = np.where(sorted_arr[:,1] == min_value)
+            start = min_idx[0][-1]+1
+            sorted_wts = sorted(sorted_arr[:start], key=lambda x: x[2])
             
+            for idx in range(len(sorted_wts)):
+                layer_idx = sorted_wts[idx,0]
+                row = sorted_wts[idx,4]
+                col = sorted_wts[idx,5]
+                # set kernel weight to 0
+                all_weights[layer_idx][0][row,col] = 0
+                # set kernel access to 1
+                all_weights[layer_idx][3][row,col] = 1
+                total_len += 1
+                if total_len == bottom_n:
+                    break
+            
+        for idx in range(len(layer_list)):
+            all_weights[idx][2][:] = 0 #sorted_arr[start:end,3]
+            layer_list[idx].set_weights(all_weights[idx])      
+            
+       """     
+    def sparsify_weights(self, model, pruning_pct):
+        
+        all_weights = []
+        layer_lst = []
+        data_lst = []
+        dim_lst = []
+        layer_cnt = 0
+        total_len = 0
+        for layer in model.layers:
+            if isinstance(layer,cl.MyDense) == True:
+                weights = layer.get_weights()
+                all_weights.append(weights)
+                
+                # get the neuron freq 
+                neuron_freq = weights[2]
+                
+                # get kernel weights
+                kernel = weights[0]
+                rows,cols = kernel.shape 
+                total_len += rows*cols
+                dim_lst.append([rows,cols])
+                # get kernel access
+                ka = weights[3]
+                
+                layer_lst.append(layer)
+                
+                data_lst.extend([(layer_cnt,neuron_freq[j], 
+                                kernel[i][j], ka[i][j],i,j) 
+                               for i in range(rows) for j in range(cols)])
+                layer_cnt += 1
+        #data_lst = [x for x in data_lst if x[3] == 0]
+        sorted_lst = sorted(data_lst,key=lambda x: (x[3],x[1], x[2]))
+        
+        ka_col = [tple[3] for tple in sorted_lst]
+        total_cols = ka_col.count(0)
+        pruning_idx = tf.cast(total_cols * (pruning_pct/100),dtype=tf.int32)
+        
+        sorted_arr = np.array(sorted_lst)
+        del sorted_lst
+        sorted_arr[:pruning_idx,2] = 0
+        sorted_arr[:pruning_idx,3] = 1
+        
+        new_lst = sorted_arr.tolist()
+        del sorted_arr
+        new_sorted_lst = sorted(new_lst,key=lambda x: (x[0],x[4], x[5]))
+        #new_sorted_arr = np.array(new_sorted_lst)
+        
+        # retrieve all kernel and kernel access values from the sorted list
+        kernel_wts = [tple[2] for tple in new_sorted_lst]
+        kernel_access = [tple[3] for tple in new_sorted_lst]
+        
+        # convert the lists into arrays
+        kernel_arr = np.array(kernel_wts)
+        ka_arr = np.array(kernel_access, dtype='int32')
+        del kernel_wts
+        del kernel_access
+        start_offset = 0
+        for idx in range(len(layer_lst)):
+            dim = dim_lst[idx]
+            total_elements = dim[0] * dim[1]
+            end_offset = start_offset+total_elements
+            kernel = np.reshape(kernel_arr[start_offset:end_offset],(dim))
+            kernel_access = np.reshape(ka_arr[start_offset:end_offset],(dim))
+            start_offset = end_offset
+            all_weights[idx][0] = kernel
+            all_weights[idx][3] = kernel_access
+            del kernel
+            del kernel_access
+            layer_lst[idx].set_weights(all_weights[idx])      
+    
     def sparsify_neuron_weights(self, model, pruning_pct):
         total_len = 0
         all_weights = []

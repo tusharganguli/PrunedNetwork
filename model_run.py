@@ -16,11 +16,13 @@ import data
 import custom_callback as cc
 import custom_layer as cl
 import custom_metrics as cm
+import custom_model as cmod
 
 class ModelRun():
     
-    def __init__(self,data_set = keras.datasets.mnist):
+    def __init__(self,data_set, model_type):
         # Load dataset
+        self.model_type = model_type
         self.data_set = data_set
         data_obj = data.Data(data_set)
         (self.valid_img,self.train_img,self.valid_labels,
@@ -71,8 +73,8 @@ class ModelRun():
                 custom_metrics = cm.CustomMetrics(name="batch_size")
                 model.compile(optimizer=self.optimizer, 
                               loss=self.loss,
-                              metrics=[self.metrics,custom_metrics]) 
-                              #run_eagerly=True)
+                              metrics=[self.metrics,custom_metrics], 
+                              run_eagerly=True)
     
                 sparse_cb = cc.MyCallback(self.data_set, pruning_type,
                                           pruning_pct, pruning_change, 
@@ -189,5 +191,8 @@ class ModelRun():
                 final_dense = dense_4
         
         output_layer = keras.layers.Dense(10, activation=tf.nn.softmax, name="output")(final_dense)
-        model = keras.models.Model(inputs=input_layer,outputs=output_layer)
+        if self.model_type == "custom":
+            model = cmod.CustomModel(inputs=input_layer,outputs=output_layer)
+        else:
+            model = keras.models.Model(inputs=input_layer,outputs=output_layer)
         return model

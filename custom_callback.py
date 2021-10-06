@@ -36,21 +36,10 @@ class MyCallback(keras.callbacks.Callback):
          train_labels,test_images,test_labels) = data_obj.load_data()
         self.train_img = train_img
         self.sn = sn.SparseNetwork()
-        self.acc_lst = []
-        self.var_lst = []
-        self.start = self.end = 0
-        self.roc_lst = []
-        self.prev_acc = 0.0000001
         
     def on_epoch_begin(self, epoch, logs=None):
         if (epoch+1)%self.sparse_update_freq != 0 or epoch == 0:
             return
-        self.acc_lst = [0.8]
-        self.var_lst = []
-        self.start = self.end = 0
-        self.roc_lst = []
-        
-    #def on_epoch_end(self, epoch, logs=None):
         if self.pruning_type == "neurons":
             self.sn.sparsify_neurons(self.model,self.pruning_pct)
         elif self.pruning_type == "weights":
@@ -58,6 +47,7 @@ class MyCallback(keras.callbacks.Callback):
         elif self.pruning_type == "neuronweights":
             self.sn.sparsify_neuron_weights(self.model,self.pruning_pct)
         self.pruning_pct += self.pruning_chg
+        self.model.block_gradients = 1
         
     def on_train_begin(self, logs=None):
         self.__create_functors()
@@ -67,9 +57,6 @@ class MyCallback(keras.callbacks.Callback):
         accuracy = logs.get("accuracy")
         if accuracy < 0.8:
             return
-        
-        #if self.__variance(accuracy) < 0.1:
-        #    return
         
         batch_sz = logs.get("batch_size")
         
@@ -83,24 +70,6 @@ class MyCallback(keras.callbacks.Callback):
                 self.__update_frequency(self.layer_obj[count],activation_data[0])
                 count += 1
     
-    def __variance( self, accuracy):
-        """
-        if self.end >= 7:
-            self.start += 1
-        self.end +=1
-        self.acc_lst.append(accuracy)
-        if self.end-self.start == 1:
-            return 0.2
-        """
-        self.acc_lst.append(accuracy)
-        var = statistics.variance(self.acc_lst)
-        self.var_lst.append(var)
-        
-        # calculate roc
-        roc = 100*((accuracy/self.prev_acc)-1)
-        self.roc_lst.append(roc)
-        self.prev_acc = accuracy
-        return 0.2
         
     def __create_functors(self):
         inp = self.model.input
