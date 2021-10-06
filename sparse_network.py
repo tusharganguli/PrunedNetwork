@@ -42,99 +42,12 @@ class SparseNetwork:
             all_weights[idx][2][:] = 0 #sorted_arr[start:end,3]
             sorted_lst[start][1].set_weights(all_weights[idx])
             start = end
-    """
-    def sparsify_weights(self, model, pruning_pct):
-        myList = []
-        sorted_lst = []
-        total_len = 0
-        all_weights = []
-        layer_cnt = 0
-        neuron_len = []
-        layer_list = []
-        for layer in model.layers:
-            if isinstance(layer,cl.MyDense) == True:
-                weights = layer.get_weights()
-                all_weights.append(weights)
-                neuron_len = weights[2].shape[0]
-                total_len += weights[0].shape[0]
-                layer_list.append(layer)
-                myList.extend([(layer_cnt,layer,i,weights[2][i]) for i in range(neuron_len)])
-                layer_cnt += 1
-        sorted_lst = sorted(myList,key=lambda x: (x[3]))
-        bottom_n = tf.cast(total_len * (pruning_pct/100),dtype=tf.int32)
-        sorted_arr = np.array(sorted_lst)
-        total_len = 0
-        for idx in range(len(sorted_arr)):
-            # initialize the weights to be removed to 0
-            layer_idx = sorted_arr[idx][0]
-            kernel_access = all_weights[layer_idx][3]
-            wts_idx = np.argwhere(kernel_access == 0)
-            col_length = len(wts_idx)
-            total_len += col_length
-
-            if total_len < bottom_n:
-                all_weights[layer_idx][0][wts_idx] = self.magic_number
-                all_weights[layer_idx][3][wts_idx] = 1
-            else:
-                all_weights[layer_idx][0][wts_idx[:col_length]] = self.magic_number
-                all_weights[layer_idx][3][wts_idx[:col_length]] = 1
-                break
             
-        for idx in range(len(layer_list)):
-            all_weights[idx][2][:] = 0 #sorted_arr[start:end,3]
-            layer_list[idx].set_weights(all_weights[idx])
-
-    def sparsify_weights(self, model, pruning_pct):
-        myList = []
-        sorted_lst = []
-        total_len = 0
-        all_weights = []
-        layer_cnt = 0
-        neuron_len = []
-        layer_list = []
-        for layer in model.layers:
-            if isinstance(layer,cl.MyDense) == True:
-                weights = layer.get_weights()
-                all_weights.append(weights)
-                neuron_len = weights[2].shape[0]
-                rows = weights[0].shape[0]
-                total_len += rows
-                layer_list.append(layer)
-                myList.extend([(layer_cnt,weights[2][i], weights[0][j,i], weights[3][j,i],j,i) for i in range(neuron_len) for j in range(rows)])
-                layer_cnt += 1
-        myList = [x for x in myList if x[3] == 0]
-        sorted_lst = sorted(myList,key=lambda x: (x[1]))
-        bottom_n = tf.cast(total_len * (pruning_pct/100),dtype=tf.int32)
-        sorted_arr = np.array(sorted_lst)
-        sorted_arr[:,2] = abs(sorted_arr[:,2])
-        
-        total_len = 0
-        start = 0
-        wts = []
-        while total_len < bottom_n:
-            # initialize the weights to be removed to 0
-            min_value = sorted_arr[start,1]
-            min_idx = np.where(sorted_arr[:,1] == min_value)
-            start = min_idx[0][-1]+1
-            sorted_wts = sorted(sorted_arr[:start], key=lambda x: x[2])
-            
-            for idx in range(len(sorted_wts)):
-                layer_idx = sorted_wts[idx,0]
-                row = sorted_wts[idx,4]
-                col = sorted_wts[idx,5]
-                # set kernel weight to 0
-                all_weights[layer_idx][0][row,col] = 0
-                # set kernel access to 1
-                all_weights[layer_idx][3][row,col] = 1
-                total_len += 1
-                if total_len == bottom_n:
-                    break
-            
-        for idx in range(len(layer_list)):
-            all_weights[idx][2][:] = 0 #sorted_arr[start:end,3]
-            layer_list[idx].set_weights(all_weights[idx])      
-            
-       """     
+    '''
+    Sparsify the network by setting weight values to 0 by sorting the  
+    weights first on kernel access then neuron frequency and then the smallest 
+    weights
+    '''
     def sparsify_weights(self, model, pruning_pct):
         
         all_weights = []
@@ -204,7 +117,8 @@ class SparseNetwork:
             del kernel
             del kernel_access
             layer_lst[idx].set_weights(all_weights[idx])      
-    
+
+"""    
     def sparsify_neuron_weights(self, model, pruning_pct):
         total_len = 0
         all_weights = []
@@ -242,3 +156,4 @@ class SparseNetwork:
             all_weights[idx][2][:] = 0
             start = offset
             layer_list[idx].set_weights(all_weights[idx])
+"""

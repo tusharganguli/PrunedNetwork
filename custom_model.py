@@ -8,34 +8,46 @@ Created on Fri Sep 10 21:27:25 2021
 
 import tensorflow as tf
 from tensorflow import keras
+from tensorflow.keras import backend as K
 
-import sparse_network as sn
+import custom_layer as cl
 
 
 class CustomModel(keras.Model):
     def __init__(self, inputs,outputs):
         super(CustomModel, self).__init__(inputs,outputs)
-        self.block_gradients = 0
+        self.batch_data = []
+        self.layer_obj = []
+        self.__create_functors()
         
     def train_step(self, data):
         # Unpack the data. Its structure depends on your model and
         # on what you pass to `fit()`.
         x, y = data
-
+        self.batch_data = tf.Variable(x, trainable=False)
+        
         with tf.GradientTape() as tape:
             y_pred = self(x, training=True)  # Forward pass
             # Compute the loss value
             # (the loss function is configured in `compile()`)
             loss = self.compiled_loss(y, y_pred, regularization_losses=self.losses)
-
+        
+        # update the neuron frequency
+        count = 0
+        for func in self.functors:
+            activation_data = func(x)
+            #activation_data = func(self.model.batch_data)
+            self.__update_frequency(self.layer_obj[count],activation_data[0])
+            count += 1
+    
         # Compute gradients
         trainable_vars = self.trainable_variables
         gradients = tape.gradient(loss, trainable_vars)
         
-        if self.block_gradients == 1:
-            gradients = self.__update_gradients(trainable_vars, 
-                                                self.non_trainable_variables, 
-                                                gradients)
+        # update the gradients based on kernel access
+        gradients = self.__update_gradients(trainable_vars, 
+                                            self.non_trainable_variables, 
+                                            gradients)
         # Update weights
         self.optimizer.apply_gradients(zip(gradients, trainable_vars))
         
@@ -64,7 +76,29 @@ class CustomModel(keras.Model):
             kernel_gradients[kernel_access == 1] = 0
             gradients[trainable_lst_idx] = kernel_gradients
         return gradients
+    
+    def __create_functors(self):
+        inp = self.input
+        layer_names = []
+        outputs = []
         
+        for layer in self.layers:
+            if not isinstance(layer,cl.MyDense):
+                continue
+            self.layer_obj += [layer]
+            layer_names += [layer.name]
+            outputs += [layer.output]
+        # evaluation functions
+        self.functors = [K.function([inp], [out]) for out in outputs]    
+    
+    def __update_frequency( self, layer, activation_data):
+        weights = layer.get_weights()
+        activation_dim = activation_data.shape
+        for step in range(0,activation_dim[0]-1):
+            weights[2] = tf.where(activation_data[step]>0,
+                                             weights[2]+1, weights[2])
+        layer.set_weights(weights)
+    
     """
     def __update_gradients(self, gradients):
         idx = 0

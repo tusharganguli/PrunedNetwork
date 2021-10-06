@@ -20,9 +20,9 @@ import custom_model as cmod
 
 class ModelRun():
     
-    def __init__(self,data_set, model_type):
+    def __init__(self,data_set):
         # Load dataset
-        self.model_type = model_type
+        
         self.data_set = data_set
         data_obj = data.Data(data_set)
         (self.valid_img,self.train_img,self.valid_labels,
@@ -38,10 +38,10 @@ class ModelRun():
         self.loss = "sparse_categorical_crossentropy"
         self.metrics = "accuracy"
         
-    def run_model(self, run_type, epochs, num_layers, 
+    def evaluate(self, run_type, epochs, num_layers, 
                   num_runs, pruning_type, 
                   pruning_pct=0, pruning_change=0,
-                  neuron_update_freq=1, sparse_update_freq=1 ):
+                  sparse_update_freq=1 ):
         
         history_list = []
         evaluate_list = []
@@ -70,15 +70,15 @@ class ModelRun():
                 log_file_name = log_file_name + "_pruning_pct_" + str(pruning_pct)
                 run_log_dir = self.__get_run_logdir(self.log_dir,log_file_name)
                 tensorboard_cb = keras.callbacks.TensorBoard(run_log_dir)
-                custom_metrics = cm.CustomMetrics(name="batch_size")
+                
                 model.compile(optimizer=self.optimizer, 
                               loss=self.loss,
-                              metrics=[self.metrics,custom_metrics], 
+                              metrics=[self.metrics], 
                               run_eagerly=True)
     
                 sparse_cb = cc.MyCallback(self.data_set, pruning_type,
                                           pruning_pct, pruning_change, 
-                                          neuron_update_freq,sparse_update_freq)
+                                          sparse_update_freq)
                 history = model.fit(self.train_img, 
                                     self.train_labels, 
                                     epochs=epochs,
@@ -191,7 +191,7 @@ class ModelRun():
                 final_dense = dense_4
         
         output_layer = keras.layers.Dense(10, activation=tf.nn.softmax, name="output")(final_dense)
-        if self.model_type == "custom":
+        if run_type == "sparse":
             model = cmod.CustomModel(inputs=input_layer,outputs=output_layer)
         else:
             model = keras.models.Model(inputs=input_layer,outputs=output_layer)
