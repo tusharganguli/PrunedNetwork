@@ -36,7 +36,6 @@ class CustomModel(keras.Model):
         count = 0
         for func in self.functors:
             activation_data = func(x)
-            #activation_data = func(self.model.batch_data)
             self.__update_frequency(self.layer_obj[count],activation_data[0])
             count += 1
     

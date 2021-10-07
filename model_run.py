@@ -41,6 +41,7 @@ class ModelRun():
     def evaluate(self, run_type, epochs, num_layers, 
                   num_runs, pruning_type, 
                   pruning_pct=0, pruning_change=0,
+                  start_prune_accuracy=50,
                   sparse_update_freq=1 ):
         
         history_list = []
@@ -70,14 +71,14 @@ class ModelRun():
                 log_file_name = log_file_name + "_pruning_pct_" + str(pruning_pct)
                 run_log_dir = self.__get_run_logdir(self.log_dir,log_file_name)
                 tensorboard_cb = keras.callbacks.TensorBoard(run_log_dir)
-                
                 model.compile(optimizer=self.optimizer, 
                               loss=self.loss,
                               metrics=[self.metrics], 
                               run_eagerly=True)
     
                 sparse_cb = cc.MyCallback(self.data_set, pruning_type,
-                                          pruning_pct, pruning_change, 
+                                          pruning_pct, pruning_change,
+                                          start_prune_accuracy,
                                           sparse_update_freq)
                 history = model.fit(self.train_img, 
                                     self.train_labels, 

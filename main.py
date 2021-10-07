@@ -15,13 +15,14 @@ epoch_cnt = 10
 run_cnt = 1
 layer_cnt = 4
 # number of epochs after which the sparsification will occur
-sparse_freq = 2
+sparse_freq = 1
 
 model = mr.ModelRun(db)
 
 model.evaluate("sparse",epochs=epoch_cnt, num_layers=layer_cnt, 
                num_runs=run_cnt, pruning_type="weights",
                pruning_pct=10, pruning_change=0,
+               start_prune_accuracy=.9,
                sparse_update_freq=sparse_freq)
 
 """
