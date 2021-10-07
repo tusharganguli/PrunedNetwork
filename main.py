@@ -17,13 +17,46 @@ layer_cnt = 4
 # number of epochs after which the sparsification will occur
 sparse_freq = 1
 
-model = mr.ModelRun(db)
+model = mr.ModelRun(db,"results")
 
-model.evaluate("sparse",epochs=epoch_cnt, num_layers=layer_cnt, 
-               num_runs=run_cnt, pruning_type="weights",
-               pruning_pct=10, pruning_change=0,
-               start_prune_accuracy=.9,
-               sparse_update_freq=sparse_freq)
+
+model.execute("sparse",epochs=epoch_cnt, num_layers=layer_cnt, 
+                           num_runs=run_cnt, pruning_type="weights",
+                           pruning_pct=5, pruning_change=0,
+                           start_prune_at_accuracy=80/100,
+                           sparse_update_freq=sparse_freq)
+
+model.execute("standard",epochs=epoch_cnt, num_layers=layer_cnt,
+               num_runs=run_cnt, pruning_type="none")
+
+"""
+model.evaluate("standard",epochs=epoch_cnt, num_layers=layer_cnt,
+               num_runs=run_cnt, pruning_type="none")
+
+start_pruning_pct = 10
+end_pruning_pct = 100
+pruning_pct_step = 20
+
+start_prune_accuracy = 10
+end_prune_accuracy = 100
+prune_accuracy_step = 20
+
+
+for pct in range(start_pruning_pct,end_pruning_pct,pruning_pct_step):
+        for prune_acc in range(start_prune_accuracy,end_prune_accuracy,prune_accuracy_step):
+            model.execute("sparse",epochs=epoch_cnt, num_layers=layer_cnt, 
+                           num_runs=run_cnt, pruning_type="weights",
+                           pruning_pct=pct, pruning_change=0,
+                           start_prune_at_accuracy=prune_acc/100,
+                           sparse_update_freq=sparse_freq)
+
+start_pruning_chg = 0
+end_pruning_chg = 100
+pruning_change_step = 10
+
+"""
+model.write_to_file(filename = "TrainingResults.xls")
+
 
 """
 model_run.run_model("standard",epochs=epoch_cnt,

@@ -39,6 +39,7 @@ class CustomModel(keras.Model):
             self.__update_frequency(self.layer_obj[count],activation_data[0])
             count += 1
     
+        # todo: replace this logic with setting the variables to non-trainable    
         # Compute gradients
         trainable_vars = self.trainable_variables
         gradients = tape.gradient(loss, trainable_vars)
@@ -47,6 +48,7 @@ class CustomModel(keras.Model):
         gradients = self.__update_gradients(trainable_vars, 
                                             self.non_trainable_variables, 
                                             gradients)
+        
         # Update weights
         self.optimizer.apply_gradients(zip(gradients, trainable_vars))
         
@@ -72,7 +74,7 @@ class CustomModel(keras.Model):
             trainable_lst_idx = trainable_name_lst.index(matching[0])
             kernel_gradients = gradients[trainable_lst_idx].numpy()
             kernel_access = non_trainable_vars[idx]
-            kernel_gradients[kernel_access == 1] = 0
+            kernel_gradients[kernel_access == 1] = tf.constant(0.0)
             gradients[trainable_lst_idx] = kernel_gradients
         return gradients
     

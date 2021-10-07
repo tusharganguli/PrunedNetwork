@@ -20,7 +20,7 @@ import custom_model as cmod
 
 class ModelRun():
     
-    def __init__(self,data_set):
+    def __init__(self,data_set, log_dir):
         # Load dataset
         
         self.data_set = data_set
@@ -30,18 +30,18 @@ class ModelRun():
         
         self.df = self.__create_data_frame()
         
-        self.log_dir = "my_logs/"#+str(num_layers)+ "/" + str(epochs) + "/" + str(run_type)
+        self.log_dir = log_dir + "/"#+str(num_layers)+ "/" + str(epochs) + "/" + str(run_type)
         self.log_dir = os.path.join(os.curdir,self.log_dir)
         
         # hyperparameters
-        self.optimizer = "adam"
+        self.optimizer = "sgd"
         self.loss = "sparse_categorical_crossentropy"
         self.metrics = "accuracy"
         
-    def evaluate(self, run_type, epochs, num_layers, 
+    def execute(self, run_type, epochs, num_layers, 
                   num_runs, pruning_type, 
                   pruning_pct=0, pruning_change=0,
-                  start_prune_accuracy=50,
+                  start_prune_at_accuracy=.5,
                   sparse_update_freq=1 ):
         
         history_list = []
@@ -63,12 +63,14 @@ class ModelRun():
                                     validation_data=(self.valid_img,self.valid_labels),
                                     callbacks=[tensorboard_cb])
             elif run_type == "sparse":
+                log_file_name += "_pruning_pct_" + str(pruning_pct)
                 if pruning_change > 0:
-                    log_file_name = "increasing_" + log_file_name
+                    log_file_name += "_increasing"
                 elif pruning_change < 0:
-                    log_file_name = "decreasing_" + log_file_name    
-                log_file_name = pruning_type + "_" + log_file_name
-                log_file_name = log_file_name + "_pruning_pct_" + str(pruning_pct)
+                    log_file_name += "_decreasing"    
+                log_file_name += "_" + pruning_type + "_pruning_" + str(pruning_change)
+                log_file_name += "_start_prune_at_accuracy_" + str(start_prune_at_accuracy)
+                
                 run_log_dir = self.__get_run_logdir(self.log_dir,log_file_name)
                 tensorboard_cb = keras.callbacks.TensorBoard(run_log_dir)
                 model.compile(optimizer=self.optimizer, 
@@ -78,7 +80,7 @@ class ModelRun():
     
                 sparse_cb = cc.MyCallback(self.data_set, pruning_type,
                                           pruning_pct, pruning_change,
-                                          start_prune_accuracy,
+                                          start_prune_at_accuracy,
                                           sparse_update_freq)
                 history = model.fit(self.train_img, 
                                     self.train_labels, 
@@ -91,15 +93,23 @@ class ModelRun():
             evaluate_list.append(eval_result)
         (train_loss,train_accuracy, 
          val_loss, val_accuracy,
-         test_loss, test_accuracy) = self.__generate_avg(history_list, evaluate_list)
+         test_loss, test_accuracy) = self.__generate_avg(history_list, 
+                                                         evaluate_list)
+        (total_trainable_wts,
+         total_sparsed_wts,sparse_pct) = self.__generate_model_summary(model)
+        sparse_pct = sparse_pct.numpy()
+            
         data = [run_type, pruning_type, epochs,
                 num_layers, pruning_pct,
-                train_loss,train_accuracy, 
-                val_loss, val_accuracy,
-                test_loss, test_accuracy]
+                start_prune_at_accuracy,
+                sparse_pct,
+                train_accuracy, val_accuracy,
+                test_accuracy, train_loss,
+                val_loss, test_loss ]
         df2 = pd.DataFrame([data], columns=list(self.df))
         self.df = self.df.append(df2,ignore_index = True)
-
+        del model
+        
     def write_to_file(self, filename):
         # create excel writer object
         writer = pd.ExcelWriter(filename)
@@ -129,7 +139,27 @@ class ModelRun():
         return (train_loss,train_accuracy, 
                 val_loss, val_accuracy, 
                 test_loss, test_accuracy )
-     
+    
+    def __generate_model_summary(self,model):
+        total_trainable_wts = 0
+        trainable_wts = model.trainable_weights
+        for wts in trainable_wts:
+            if "kernel" in wts.name:
+                total_trainable_wts += tf.size(wts)
+        non_trainable_vars = model.non_trainable_variables   
+        total_sparsed_wts = 0
+        for wts in non_trainable_vars:
+            if "kernel_access" in wts.name:
+                elements_equal_to_value = tf.equal(wts, 1)
+                as_ints = tf.cast(elements_equal_to_value, tf.int32)
+                count = tf.reduce_sum(as_ints)
+                total_sparsed_wts += count        
+        tf.print("Trainable variables:",total_trainable_wts)
+        tf.print("Variables pruned:",total_sparsed_wts)
+        sparse_pct = (total_sparsed_wts/total_trainable_wts)*100
+        tf.print("Sparse percentage:",sparse_pct)
+        return (total_trainable_wts,total_sparsed_wts,sparse_pct)
+        
     def __create_data_frame(self):
         
         df = pd.DataFrame(columns = ['Model Type',
@@ -137,12 +167,14 @@ class ModelRun():
                                      'No Of Epochs', 
                                      'Intermediate Layers',
                                      'Pct Pruning', 
-                                     'Training Loss',
+                                     'Pruning Start At Accuracy',
+                                     'Total Pruning(%) Achieved',
                                      'Training Accuracy',
-                                     'Validation Loss',
                                      'Validation Accuracy',
-                                     'Test Loss',
                                      'Test Accuracy',
+                                     'Training Loss',
+                                     'Validation Loss',
+                                     'Test Loss',
                                      ])
 
           
