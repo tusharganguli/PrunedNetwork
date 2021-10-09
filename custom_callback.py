@@ -13,31 +13,32 @@ import numpy as np
 
 import sparse_network as sn
 
-class MyCallback(keras.callbacks.Callback):
-    def __init__(self, data_set, pruning_type, pruning_pct, 
-                 pruning_chg, start_prune_at_accuracy, sparse_update_freq):
+class PruningCallback(keras.callbacks.Callback):
+    def __init__(self, data_set, run_type, pruning_type, training_accuracy,
+                 pruning_pct, pruning_chg, 
+                 prune_accuracy_threshold, prune_freq):
         """ Save params in constructor
         """
-        if pruning_type != "neurons" and pruning_type != "weights":
-            raise ValueError("Invalid pruning type supplied in callback")
-            
+        self.run_type = run_type    
         self.pruning_type = pruning_type
+        self.training_accuracy = training_accuracy
         self.pruning_pct = pruning_pct
         self.pruning_chg = pruning_chg
-        self.start_prune_at_accuracy = start_prune_at_accuracy
-        self.sparse_update_freq = sparse_update_freq
+        self.prune_accuracy_threshold = prune_accuracy_threshold
+        self.prune_freq = prune_freq
         self.accuracy = 0
+        self.count = 0
         self.sn = sn.SparseNetwork()
         
     def on_epoch_begin(self, epoch, logs=None):
-        if (epoch+1)%self.sparse_update_freq != 0:
-            return
-        if self.sparse_update_freq != 1 and epoch == 0:
-            return
-        if epoch == 0:
+        if self.run_type == "standard":
             return
         
-        if self.accuracy < self.start_prune_at_accuracy:
+        if self.accuracy < self.prune_accuracy_threshold:
+            return
+        self.count += 1
+        
+        if self.count%self.prune_freq != 0:
             return
         
         wts = self.model.trainable_variables
@@ -65,6 +66,9 @@ class MyCallback(keras.callbacks.Callback):
         
     def on_epoch_end(self,epoch,logs=None):
         self.accuracy = logs["accuracy"]
+        
+        if self.accuracy >= self.training_accuracy:
+            self.model.stop_training = 1
         
     
         
