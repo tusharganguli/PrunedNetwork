@@ -11,16 +11,15 @@ import tensorflow as tf
 from tensorflow import keras
 # for writing to an excel file
 import pandas as pd
+import numpy as np
 
 import data
-import custom_callback as cc
-import custom_layer as cl
-import custom_metrics as cm
+import pruning_callback as pc
 import custom_model as cmod
 
 class ModelRun():
     
-    def __init__(self,data_set, log_dir):
+    def __init__(self,data_set, log_dir, prune_dir):
         # Load dataset
         
         self.data_set = data_set
@@ -33,6 +32,9 @@ class ModelRun():
         self.log_dir = log_dir + "/" 
         self.log_dir = os.path.join(os.curdir,self.log_dir)
         
+        self.prune_dir = prune_dir + "/" 
+        self.prune_dir = os.path.join(os.curdir,self.prune_dir)
+        
         # hyperparameters
         self.optimizer = "sgd"
         self.loss = "sparse_categorical_crossentropy"
@@ -43,7 +45,8 @@ class ModelRun():
                   training_accuracy = 0.8,
                   pruning_pct=0, pruning_change=0,
                   prune_accuracy_threshold=.5,
-                  prune_freq=1 ):
+                  prune_freq=1,
+                  neuron_ctr_start_at_acc = 0, reset_neuron_count = False ):
         
         history_list = []
         evaluate_list = []
@@ -51,14 +54,9 @@ class ModelRun():
         for runs in range(num_runs):   
             tf.keras.backend.clear_session()
             model = self.__create_model(run_type,neuron_cnt, num_layers)
-            log_file_name = run_type + "_epoch_" + str(epochs) + \
-                            "_num_layers_" + str(num_layers)
+            log_file_name = run_type #+ "_epoch_" + str(epochs) + "_num_layers_" + str(num_layers)
             
-            cb = cc.PruningCallback(self.data_set, run_type, pruning_type,
-                                    training_accuracy,
-                                    pruning_pct, pruning_change,
-                                    prune_accuracy_threshold,
-                                    prune_freq)
+            stop_cb = pc.StopCallback(training_accuracy)
             
             if run_type == "standard":
                 run_log_dir = self.__get_run_logdir(self.log_dir,log_file_name)
@@ -68,18 +66,28 @@ class ModelRun():
                 history = model.fit(self.train_img, self.train_labels, 
                                     epochs=epochs,
                                     validation_data=(self.valid_img,self.valid_labels),
-                                    callbacks=[cb,tensorboard_cb])
-            elif run_type == "sparse":
-                log_file_name += "_pruning_pct_" + str(pruning_pct)
+                                    callbacks=[stop_cb,tensorboard_cb])
+            elif run_type == "prune":
+                log_file_name += "_PruningPct_" + str(pruning_pct)
                 if pruning_change > 0:
-                    log_file_name += "_increasing"
+                    log_file_name += "_Increasing"
                 elif pruning_change < 0:
-                    log_file_name += "_decreasing"    
-                log_file_name += "_" + pruning_type + "_pruning_" + str(pruning_change)
-                log_file_name += "_prune_accuracy_threshold_" + str(prune_accuracy_threshold)
-                
+                    log_file_name += "_Decreasing"    
+                log_file_name += "_PruningType_" + pruning_type # + "_pruning_" + str(pruning_change)
+                log_file_name += "_PruneAccuracyThreshold_" + str(prune_accuracy_threshold)
+                log_file_name += "_FinalAccuracy_" + str(training_accuracy)
+                if reset_neuron_count == True:
+                    log_file_name += "_ResetNeuron"    
                 run_log_dir = self.__get_run_logdir(self.log_dir,log_file_name)
                 tensorboard_cb = keras.callbacks.TensorBoard(run_log_dir)
+                pruning_cb = pc.PruningCallback(model,self.train_img, pruning_type,
+                                                pruning_pct, pruning_change,
+                                                prune_accuracy_threshold,
+                                                prune_freq,
+                                                reset_neuron_count,
+                                                neuron_ctr_start_at_acc,
+                                                self.prune_dir, log_file_name)
+            
                 model.compile(optimizer=self.optimizer, 
                               loss=self.loss,
                               metrics=[self.metrics], 
@@ -89,7 +97,7 @@ class ModelRun():
                                     self.train_labels, 
                                     epochs=epochs,
                                     validation_data=(self.valid_img,self.valid_labels),
-                                    callbacks=[cb,tensorboard_cb])
+                                    callbacks=[stop_cb,pruning_cb,tensorboard_cb])
             
             history_list.append(history)    
             eval_result = model.evaluate(self.test_images,self.test_labels)
@@ -145,25 +153,22 @@ class ModelRun():
                 test_loss, test_accuracy )
     
     def __generate_model_summary(self,model):
-        total_trainable_wts = 0
+        trainable_wts = 0
         trainable_wts = model.trainable_weights
+        pruned_wts = 0
         for wts in trainable_wts:
             if "kernel" in wts.name:
-                total_trainable_wts += tf.size(wts)
-        non_trainable_vars = model.non_trainable_variables   
-        total_sparsed_wts = 0
-        for wts in non_trainable_vars:
-            if "kernel_access" in wts.name:
-                elements_equal_to_value = tf.equal(wts, 1)
-                as_ints = tf.cast(elements_equal_to_value, tf.int32)
-                count = tf.reduce_sum(as_ints)
-                total_sparsed_wts += count        
-        tf.print("Trainable variables:",total_trainable_wts)
-        tf.print("Variables pruned:",total_sparsed_wts)
-        sparse_pct = (total_sparsed_wts/total_trainable_wts)*100
+                trainable_wts = tf.add(trainable_wts,tf.size(wts))
+                kernel_arr = wts.numpy()
+                num_zeros = tf.size(kernel_arr[np.where(kernel_arr == 0)])
+                pruned_wts = tf.add(pruned_wts,num_zeros)
+                
+        tf.print("Trainable variables:",trainable_wts)
+        tf.print("Variables pruned:",pruned_wts)
+        sparse_pct = (pruned_wts/trainable_wts)*100
         tf.print("Sparse percentage:",sparse_pct)
-        return (total_trainable_wts,total_sparsed_wts,sparse_pct)
-        
+        return (trainable_wts,pruned_wts,sparse_pct)
+    
     def __create_data_frame(self):
         
         df = pd.DataFrame(columns = ['Model Type',
@@ -197,34 +202,20 @@ class ModelRun():
         input_layer = keras.Input(shape=(28,28), name="input")
         flatten = keras.layers.Flatten(name="flatten")(input_layer)
         
-        if run_type == "standard":    
-            dense_1 = keras.layers.Dense(neuron_cnt[0],activation=tf.nn.relu, name="dense_1" )(flatten)
-            final_dense = dense_1
-            if num_layers >= 2:
-                dense_2 = keras.layers.Dense(neuron_cnt[1],activation=tf.nn.relu, name="dense_2" )(dense_1)
-                final_dense = dense_2
-            if num_layers >= 3:
-                dense_3 = keras.layers.Dense(neuron_cnt[2],activation=tf.nn.relu, name="dense_3" )(dense_2)
-                final_dense = dense_3
-            if num_layers >= 4:
-                dense_4 = keras.layers.Dense(neuron_cnt[3],activation=tf.nn.relu, name="dense_4" )(dense_3)
-                final_dense = dense_4
-        
-        if run_type == "sparse":    
-            dense_1 = cl.MyDense(neuron_cnt[0],activation=tf.nn.relu, name="dense_1" )(flatten)
-            final_dense = dense_1
-            if num_layers >= 2:
-                dense_2 = cl.MyDense(neuron_cnt[1],activation=tf.nn.relu, name="dense_2" )(dense_1)
-                final_dense = dense_2
-            if num_layers >= 3:
-                dense_3 = cl.MyDense(neuron_cnt[2],activation=tf.nn.relu, name="dense_3" )(dense_2)
-                final_dense = dense_3
-            if num_layers >= 4:
-                dense_4 = cl.MyDense(neuron_cnt[3],activation=tf.nn.relu, name="dense_4" )(dense_3)
-                final_dense = dense_4
+        dense_1 = keras.layers.Dense(neuron_cnt[0],activation=tf.nn.relu, name="dense_1" )(flatten)
+        final_dense = dense_1
+        if num_layers >= 2:
+            dense_2 = keras.layers.Dense(neuron_cnt[1],activation=tf.nn.relu, name="dense_2" )(dense_1)
+            final_dense = dense_2
+        if num_layers >= 3:
+            dense_3 = keras.layers.Dense(neuron_cnt[2],activation=tf.nn.relu, name="dense_3" )(dense_2)
+            final_dense = dense_3
+        if num_layers >= 4:
+            dense_4 = keras.layers.Dense(neuron_cnt[3],activation=tf.nn.relu, name="dense_4" )(dense_3)
+            final_dense = dense_4
         
         output_layer = keras.layers.Dense(10, activation=tf.nn.softmax, name="output")(final_dense)
-        if run_type == "sparse":
+        if run_type == "prune":
             model = cmod.CustomModel(inputs=input_layer,outputs=output_layer)
         else:
             model = keras.models.Model(inputs=input_layer,outputs=output_layer)
