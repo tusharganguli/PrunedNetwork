@@ -31,24 +31,27 @@ class PruneNetwork:
         return neuron
     
     def enable_neuron_update(self):
-        self.model.enable_neuron_freq_update()
+        self.model.enable_neuron_update()
+    
+    def disable_neuron_update(self):
+        self.model.disable_neuron_update()
         
+    def enable_pruning(self):
+        self.model.enable_pruning()
             
     """
     Sparsify the network by setting weight values to 0 by sorting the  
     weights first on kernel access then neuron frequency and then the smallest 
     weights
     """
-    def sparsify_weights(self, model, pruning_pct):
-        self.__pruning_enabled()
-        
+    def prune_weights(self, model, pruning_pct):
         all_weights = []
         layer_lst = []
         data_lst = []
         dim_lst = []
         layer_cnt = 0
         total_len = 0
-        
+            
         for layer in model.layers:
             if not isinstance(layer,keras.layers.Dense):
                 continue
@@ -78,9 +81,9 @@ class PruneNetwork:
         sorted_lst = sorted(non_zero_wts,key=lambda x: (x[1], x[2]))
         del non_zero_wts
         
-        kernel_vals = [tple[2] for tple in sorted_lst]
-        total_vals = len(kernel_vals)
-        pruning_idx = tf.cast(total_vals * (pruning_pct/100),dtype=tf.int32)
+        #kernel_vals = [tple[2] for tple in sorted_lst]
+        #total_vals = len(kernel_vals)
+        pruning_idx = tf.cast(total_len * (pruning_pct/100),dtype=tf.int32)
                 
         sorted_arr = np.array(sorted_lst)
         del sorted_lst
@@ -189,6 +192,7 @@ class PruneNetwork:
             del kernel
             layer_lst[idx].set_weights(all_weights[idx])      
 
+
     def __create_functors(self):
         inp = self.model.input
         outputs = []
@@ -237,17 +241,15 @@ class PruneNetwork:
         
         tf.print("Trainable variables:",trainable_wts_cnt)
         tf.print("Variables pruned:",pruned_wts_cnt)
-        sparse_pct = (pruned_wts_cnt/trainable_wts_cnt)*100
-        tf.print("Sparse percentage:",sparse_pct)
-        return (trainable_wts_cnt,pruned_wts_cnt,sparse_pct)
+        prune_pct = (pruned_wts_cnt/trainable_wts_cnt)*100
+        tf.print("Prune percentage:",prune_pct)
+        return (trainable_wts_cnt,pruned_wts_cnt,prune_pct)
     
     def reset_neuron_count(self):
         for idx in range(len(self.neuron)):
             zeros = tf.zeros(self.neuron[idx].shape,dtype=tf.int32)
             self.neuron[idx] = zeros
     
-    def __pruning_enabled(self):
-        self.model.pruning_flag = True
         
 """
     def sparsify_neurons(self, model, pruning_pct):

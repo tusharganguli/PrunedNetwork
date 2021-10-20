@@ -66,10 +66,12 @@ class CustomModel(keras.Model):
             
         return gradients
     
-    
-    def enable_neuron_freq_update(self):
+    def enable_pruning(self):
+        self.pruning_flag = True
+        
+    def enable_neuron_update(self):
         self.neuron_update = True
     
-    def disable_neuron_freq_update(self):
+    def disable_neuron_update(self):
         self.neuron_update = False
     
