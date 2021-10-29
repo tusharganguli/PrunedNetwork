@@ -11,6 +11,7 @@ from tensorflow import keras
 import numpy as np
 import pandas as pd
 import os
+from datetime import datetime
 #import random
 
 import prune_network as pn
@@ -32,15 +33,16 @@ class LogHandler:
         log_data = [epoch,total_trainable_wts.numpy(),
                     total_pruned_wts.numpy(),
                     prune_pct.numpy()]
-        df2 = pd.DataFrame([log_data], columns=list(self.df))
+        df2 = pd.DataFrame([log_data], columns=list(LogHandler.df))
         LogHandler.df = LogHandler.df.append(df2,ignore_index = True)
     
     def write_to_file(self):
         writer = pd.ExcelWriter(self.prune_dir + self.log_file_name + ".xls")
-        self.df.to_excel(writer)
+        LogHandler.df.to_excel(writer)
         # save the excel
         writer.save()
-        
+        LogHandler.df = LogHandler.df.iloc[0:0]
+   
 class PruningCallback(keras.callbacks.Callback):
     def __init__(self, model, train_data, pruning_type,
                  pruning_pct, pruning_chg, 
@@ -187,20 +189,17 @@ class OTPCallback(keras.callbacks.Callback):
    
 class IntervalPruningCallback(keras.callbacks.Callback):
     def __init__(self, model, pruning_type,
-                 target_pruning_pct, pruning_chg,
-                 pruning_intervals, pruning_range,
+                 pruning_values, epoch_range,
                  reset_neuron_count,
                  prune_dir, file_name):
         """ Save params in constructor
         """
         self.model = model
         self.pruning_type = pruning_type
-        self.target_pruning_pct = target_pruning_pct
-        self.pruning_pct = 0
-        self.pruning_chg = pruning_chg
-        self.pruning_intervals = pruning_intervals
-        self.pruning_range = pruning_range
-        self.current_interval = 0
+        self.pruning_values = pruning_values
+        self.epoch_range = epoch_range
+        self.total_idx = len(self.epoch_range)
+        self.idx = 0
         self.reset_neuron_count = reset_neuron_count
         self.pn = pn.PruneNetwork(model)
         model.set_prune_network(self.pn)
@@ -209,19 +208,22 @@ class IntervalPruningCallback(keras.callbacks.Callback):
     def on_train_begin(self, logs=None):
         self.pn.enable_neuron_update()
         #total_epochs = self.model.history.params["epochs"]
-        self.prune_at_interval = self.pruning_range/(self.pruning_intervals+1)
-        self.pruning_pct = self.target_pruning_pct/self.pruning_intervals
+        #self.prune_at_interval = self.pruning_range/(self.pruning_intervals+1)
+        #self.pruning_pct = self.target_pruning_pct/self.pruning_intervals
         
     def on_epoch_begin(self, epoch, logs=None):
         
-        if (epoch+1)%self.prune_at_interval != 0:
+        if self.idx == self.total_idx:
+            self.pn.disable_neuron_update()
             return
         
-        self.current_interval += 1
-        if self.current_interval >= self.pruning_intervals+1:
+        prune_at_epoch = self.epoch_range[self.idx]
+        if (epoch+1) != prune_at_epoch:
             return
-        
         self.pn.enable_pruning()
+        
+        pruning_pct = self.pruning_values[self.idx]
+        self.idx += 1
         
         num_zeros = self.pn.get_zeros()
         tf.print("zeros before pruning:" + str(num_zeros))
@@ -229,7 +231,7 @@ class IntervalPruningCallback(keras.callbacks.Callback):
         if self.pruning_type == "neurons":
             self.pn.sparsify_neurons(self.model,self.pruning_pct)
         elif self.pruning_type == "weights":
-            self.pn.prune_weights(self.model,self.pruning_pct)
+            self.pn.prune_weights(self.model, pruning_pct)
         elif self.pruning_type == "absolute_weights":
             self.pn.sparsify_absolute_weights(self.model,self.pruning_pct)
         
@@ -239,7 +241,62 @@ class IntervalPruningCallback(keras.callbacks.Callback):
         
         self.lh.log(epoch, total_trainable_wts, total_pruned_wts, prune_pct)
         
-        self.pruning_pct += self.pruning_chg
+        if self.reset_neuron_count == True:
+            self.pn.reset_neuron_count()
+        
+
+class OptimalPruningCallback(keras.callbacks.Callback):
+    def __init__(self, model, pruning_type, epoch_pruning_interval,
+                 num_pruning, reset_neuron_count, log_dir,
+                 prune_dir, file_name):
+        """ Save params in constructor
+        """
+        self.model = model
+        self.pruning_type = pruning_type
+        self.epoch_pruning_interval = epoch_pruning_interval
+        self.num_pruning = num_pruning
+        self.idx = 0
+        
+        self.reset_neuron_count = reset_neuron_count
+        self.pn = pn.PruneNetwork(model)
+        model.set_prune_network(self.pn)
+        self.lh = LogHandler(prune_dir, file_name)
+        
+        log_dir = log_dir + "/scalars/" + datetime.now().strftime("%Y%m%d-%H%M%S")
+        file_writer = tf.summary.create_file_writer(log_dir + "/metrics")
+        file_writer.set_as_default()
+        
+    def on_train_begin(self, logs=None):
+        self.pn.enable_neuron_update()
+    
+    def on_train_end(self,logs=None):
+        self.lh.write_to_file()
+    
+    def on_epoch_begin(self,epoch,logs=None):
+        (total_trainable_wts,
+         total_pruned_wts,prune_pct) = self.pn.get_prune_summary()
+        tf.print("zeros after pruning:" + str(total_pruned_wts.numpy()))
+        wts_remaining = total_trainable_wts - total_pruned_wts.numpy()
+        tf.summary.scalar('pruning',data=wts_remaining, step=epoch)
+        
+    def on_epoch_end(self, epoch, logs=None):
+        
+        if self.idx == self.num_pruning:
+            self.pn.disable_neuron_update()
+            return
+        
+        if (epoch+1)%self.epoch_pruning_interval != 0:
+            return
+        
+        self.idx += 1
+        self.pn.enable_pruning()
+        
+        num_zeros = self.pn.get_zeros()
+        tf.print("zeros before pruning:" + str(num_zeros))
+        
+        self.pn.prune_optimal_weights(self.model, self.pruning_type)
+        
+        #self.lh.log(epoch, total_trainable_wts, total_pruned_wts, prune_pct)
         
         if self.reset_neuron_count == True:
             self.pn.reset_neuron_count()

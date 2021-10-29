@@ -207,9 +207,8 @@ class ModelRun():
         
     def evaluate_interval_pruning(self, run_type, num_runs, pruning_type, 
                                   final_training_accuracy,
-                                  target_pruning_pct, pruning_change,
-                                  pruning_intervals,
-                                  pruning_range,
+                                  pruning_values,
+                                  epoch_range,
                                   reset_neuron_count = False ):
         
         history_list = []
@@ -217,12 +216,9 @@ class ModelRun():
         epoch_list = []
         prune_pct_list = []
         
+        target_pruning_pct = sum(pruning_values)
         log_file_name = run_type
-        log_file_name += "PrunePct_" + str(target_pruning_pct)
-        if pruning_change > 0:
-            log_file_name += "_Inc"
-        elif pruning_change < 0:
-            log_file_name += "_Dec"    
+        log_file_name += "_PrunePct_" + str(target_pruning_pct)
         log_file_name += "_PruneType_" + pruning_type
         log_file_name += "_FinalAcc_" + str(final_training_accuracy)
         if reset_neuron_count == True:
@@ -237,11 +233,10 @@ class ModelRun():
             run_log_dir = self.__get_run_logdir(self.log_dir,log_file_name)
             tensorboard_cb = keras.callbacks.TensorBoard(run_log_dir)
             pruning_cb = pc.IntervalPruningCallback(model,pruning_type,
-                                            target_pruning_pct, pruning_change,
-                                            pruning_intervals,
-                                            pruning_range,
-                                            reset_neuron_count,
-                                            self.prune_dir, log_file_name)
+                                                    pruning_values,
+                                                    epoch_range,
+                                                    reset_neuron_count,
+                                                    self.prune_dir, log_file_name)
         
             model.compile(optimizer=self.optimizer, 
                           loss=self.loss,
@@ -253,7 +248,75 @@ class ModelRun():
                                 epochs=self.epochs,
                                 validation_data=(self.valid_img,self.valid_labels),
                                 callbacks=[stop_cb,pruning_cb,tensorboard_cb])
+            
+            num_epochs = stop_cb.get_num_epochs()
+            epoch_list.append(num_epochs)
+            
+            history_list.append(history)    
+            eval_result = model.evaluate(self.test_images,self.test_labels)
+            evaluate_list.append(eval_result)
+            (train_loss,train_accuracy, 
+             val_loss, val_accuracy,
+             test_loss, test_accuracy) = self.__generate_avg(history_list, 
+                                                         evaluate_list)
+                                                                 
+            (total_trainable_wts,
+            total_pruned_wts,prune_pct_achieved) = self.__generate_model_summary(model)
+            prune_pct_achieved = prune_pct_achieved.numpy()
+            prune_pct_list.append(prune_pct_achieved)
+            del model
         
+        self.__log_data(run_type, history_list, evaluate_list, epoch_list,
+                        prune_pct_list )
+
+    def evaluate_optimal_pruning(self, run_type, num_runs, pruning_type,
+                                 final_training_accuracy, 
+                                 epoch_pruning_interval, num_pruning,  
+                                 reset_neuron_count = False ):
+        
+        history_list = []
+        evaluate_list = []
+        epoch_list = []
+        prune_pct_list = []
+        
+        log_file_name = run_type
+        log_file_name += "_PruneType_" + pruning_type
+        log_file_name += "_EpochInterval_" + str(epoch_pruning_interval)
+        log_file_name += "_TotalPruning_" + str(num_pruning)
+        log_file_name += "_FinalAcc_" + str(final_training_accuracy)
+        
+        if reset_neuron_count == True:
+            log_file_name += "_ResetNeuron"    
+            
+        for runs in range(num_runs):   
+            tf.keras.backend.clear_session()
+            model = self.__create_model(run_type)
+            
+            stop_cb = pc.StopCallback(final_training_accuracy)
+            
+            run_log_dir = self.__get_run_logdir(self.log_dir,log_file_name)
+            tensorboard_cb = keras.callbacks.TensorBoard(run_log_dir)
+            pruning_cb = pc.OptimalPruningCallback(model,pruning_type,
+                                                   epoch_pruning_interval,
+                                                   num_pruning, 
+                                                   reset_neuron_count,
+                                                   self.log_dir,
+                                                   self.prune_dir, log_file_name)
+        
+            model.compile(optimizer=self.optimizer, 
+                          loss=self.loss,
+                          metrics=[self.metrics], 
+                          run_eagerly=True)
+
+            history = model.fit(self.train_img, 
+                                self.train_labels, 
+                                epochs=self.epochs,
+                                validation_data=(self.valid_img,self.valid_labels),
+                                callbacks=[stop_cb,pruning_cb,tensorboard_cb])
+            
+            num_epochs = stop_cb.get_num_epochs()
+            epoch_list.append(num_epochs)
+            
             history_list.append(history)    
             eval_result = model.evaluate(self.test_images,self.test_labels)
             evaluate_list.append(eval_result)
@@ -278,7 +341,6 @@ class ModelRun():
          val_loss, val_accuracy,
          test_loss, test_accuracy) = self.__generate_avg(history_list,
                                                          evaluate_list)
-        
         epoch_avg = sum(num_epoch_list)/len(num_epoch_list)
         prune_achieved_avg = sum(prune_pct_list)/len(prune_pct_list)
         

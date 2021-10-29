@@ -18,6 +18,8 @@ class PruneNetwork:
         self.__create_functors()
         self.neuron = self.__create_neurons()
         
+        # variable for prune_optimal
+        self.pruning_rate = 1
         
     def __create_neurons(self):
         trainable_vars = self.model.trainable_variables
@@ -40,7 +42,7 @@ class PruneNetwork:
         self.model.enable_pruning()
             
     """
-    Sparsify the network by setting weight values to 0 by sorting the  
+    Prune the network by setting weight values to 0 by sorting the  
     weights first on kernel access then neuron frequency and then the smallest 
     weights
     """
@@ -120,7 +122,7 @@ class PruneNetwork:
     weights first on kernel access then neuron frequency and then the smallest 
     weights
     """
-    def sparsify_absolute_weights(self, model, pruning_pct):
+    def prune_absolute_weights(self, model, pruning_pct):
         self.__pruning_enabled()
         
         all_weights = []
@@ -192,7 +194,74 @@ class PruneNetwork:
             del kernel
             layer_lst[idx].set_weights(all_weights[idx])      
 
+    """
+    Prune the network by setting weight values to 0 by sorting the  
+    weights first on kernel access then neuron frequency and then the smallest 
+    weights
+    """
+    def prune_optimal_weights(self, model, pruning_type):
+        
+        network_pruned = False
+        #while network_pruned != True:
+        
+        network_pruned = self.__prune_layers(model)
+        
+        #        self.pruning_rate -= 0.01 
+            
 
+    def __prune_layers(self, model):
+        layer_cnt = 0
+        network_pruned = False
+        for layer in model.layers:
+                if not isinstance(layer,keras.layers.Dense):
+                    continue
+                if layer.name == "output":
+                    continue
+                weights = layer.get_weights()
+                
+                # get the neuron freq 
+                neuron_freq = self.neuron[layer_cnt].numpy()
+                pruning_range = np.linspace(3,1,5)
+                for pruning_rate in pruning_range:
+                    kernel,pruning = self.__prune_avg(weights, neuron_freq,
+                                                  pruning_rate)
+                    if pruning == True:
+                        tf.print("Layer:", layer.name,", Pruning Rate:", pruning_rate )
+                        weights[0] = kernel
+                        layer.set_weights(weights)      
+                        layer_cnt += 1
+                        network_pruned = True       
+                        break
+        return network_pruned                    
+                        
+    def __prune_avg(self, weights,neuron_freq,pruning_rate ):
+        pruning = False
+        # generate the minimum value lower than which all neurons 
+        # are to be removed
+        min_value = np.mean(neuron_freq)-(pruning_rate*np.std(neuron_freq))
+        # get kernel weights
+        kernel = weights[0]
+        rows,cols = kernel.shape 
+        for idx in range(cols):
+            is_zero = np.all(kernel[:,idx] == 0)
+            if is_zero == False and neuron_freq[idx] < min_value:
+                pruning = True
+                kernel[:,idx] = 0
+        return (kernel,pruning)
+    
+    def __prune_max(self, weights,neuron_freq ):
+        # generate the minimum value lower than which all neurons 
+        # are to be removed
+        min_value = np.max(neuron_freq)-(0.9*np.std(neuron_freq))
+        # get kernel weights
+        kernel = weights[0]
+        rows,cols = kernel.shape 
+        for idx in range(cols):
+            is_zero = np.all(kernel[:,idx] == 0)
+            if is_zero == False and neuron_freq[idx] < min_value:
+                kernel[:,idx] = 0
+        return kernel
+    
     def __create_functors(self):
         inp = self.model.input
         outputs = []
