@@ -9,6 +9,7 @@ import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import backend as K
 import numpy as np
+import pandas as pd
 
 class PruneNetwork:
     def __init__(self, model):
@@ -16,6 +17,7 @@ class PruneNetwork:
         self.total_pruned_wts = 0
         self.functors = []
         self.__create_functors()
+        self.neuron_len = 0
         self.neuron = self.__create_neurons()
         
         # variable for prune_optimal
@@ -28,8 +30,11 @@ class PruneNetwork:
         for idx in range(len(trainable_vars)):
             if "kernel" not in trainable_vars[idx].name:
                 continue
+            if trainable_vars[idx].name == "output":
+                continue
             rows,cols = trainable_vars[idx].shape 
             neuron.append([0 for x in range(cols)])
+            self.neuron_len += cols
         return neuron
     
     def enable_neuron_update(self):
@@ -56,6 +61,8 @@ class PruneNetwork:
             
         for layer in model.layers:
             if not isinstance(layer,keras.layers.Dense):
+                continue
+            if layer.name == "output":
                 continue
             weights = layer.get_weights()
             all_weights.append(weights)
@@ -116,7 +123,166 @@ class PruneNetwork:
             del kernel
             layer_lst[idx].set_weights(all_weights[idx])      
 
+    def redistribute_and_prune_weights(self, model, pruning_pct):
+        neuron_lst = []
+        all_weights = []
+        layer_lst = []
+        data_lst = []
+        dim_lst = []
+        layer_cnt = 0
+        total_len = 0
+        
+        for layer in model.layers:
+            if not isinstance(layer,keras.layers.Dense):
+                continue
+            #if layer.name == "output":
+            #    continue
+            weights = layer.get_weights()
+            all_weights.append(weights)
+            
+                
+            # get kernel weights
+            kernel = weights[0]
+            rows,cols = kernel.shape 
+            total_len += rows*cols
+            dim_lst.append([rows,cols])
+            
+            # get the neuron freq 
+            prune_flag = 0
+            if layer.name != "output":
+                neuron_freq = self.neuron[layer_cnt].numpy()
+                neuron_lst.extend([(layer_cnt, j, neuron_freq[j], prune_flag) 
+                                   for j in range(cols)])
+                
+            layer_lst.append(layer)
+            
+            data_lst.extend([(layer_cnt,i,j, neuron_freq[j], kernel[i][j], prune_flag) 
+                           for j in range(cols) for i in range(rows)])
+            
+            layer_cnt += 1
+        
+        
+        
+        df_neuron = pd.DataFrame(neuron_lst, 
+                                 columns=["layer", "j","neuron_freq","flag"])
+        del neuron_lst
+        
+        #is_zero = np.all(kernel[:,idx] == 0)
+        
+        df_data = pd.DataFrame(data_lst,
+                               columns=["layer","i","j","neuron_freq","wts","flag"])
+        del data_lst
+        
+        df_neuron_sort = df_neuron.sort_values(["neuron_freq"], ascending=True)
+        
+        pruning_idx = tf.cast(total_len * (pruning_pct/100),dtype=tf.int32)
+            
+        for idx1,row in df_neuron_sort.iterrows():
+            layer = row["layer"]
+            n_freq = row["neuron_freq"]
+            n_idx = row["j"]
+            df_neuron_data = df_data[ (df_data["layer"] == layer) & 
+                                     (df_data["neuron_freq"] == n_freq) &
+                                     (df_data["j"] == n_idx) ]
+            df_data.loc[df_neuron_data.index,"flag"] = 1
+            
+            incoming_wts = df_neuron_data.shape[0]
+            pruning_idx -= incoming_wts 
+            
+            # retrieve the weight values from the outgoing connections
+            df_outgoing_wts = df_data[ (df_data["layer"] == layer+1) & 
+                                     (df_data["i"] == n_idx) ]
+            df_data.loc[df_outgoing_wts.index,"flag"] = 1
+            
+            outgoing_wts = df_outgoing_wts.shape[0]
+            pruning_idx -= outgoing_wts
+            
+            if pruning_idx <= 0:
+                break
+            
+        #self.redistribute_wts(df_data, layer_cnt)
+        
+        # also check the condition number largest sig val / smallest sig val
+        self.svd(all_weights, layer_lst, "BeforePruning")
+        
+        # set all pruned wts to 0
+        df_data.loc[df_data["flag"] == 1,"wts"] = 0
+        
+        df_data = df_data.sort_values(["layer","i","j"])
+        # retrieve all kernel values from the sorted list
+        kernel_wts = df_data["wts"]
+        
+        # convert the lists into arrays
+        kernel_arr = np.array(kernel_wts)
+        del kernel_wts
+        
+        start_offset = 0
+        for idx in range(len(layer_lst)):
+            dim = dim_lst[idx]
+            total_elements = dim[0] * dim[1]
+            end_offset = start_offset+total_elements
+            kernel = np.reshape(kernel_arr[start_offset:end_offset],(dim))
+            start_offset = end_offset
+            all_weights[idx][0] = kernel
+            del kernel
+            layer_lst[idx].set_weights(all_weights[idx])      
 
+        self.svd(all_weights, layer_lst, "AfterPruning")
+        
+    def svd(self, all_wts, layer_lst, msg):
+        from scipy.linalg import svd
+        from datetime import datetime
+        
+        for idx in range(len(layer_lst)):
+            wts = all_wts[idx][0]
+            u,s,vt = svd(wts)
+            date = datetime.now().strftime("%Y%m%d-%H%M%S")
+            filename = "./svd/" + date + "_layer"+layer_lst[idx].name+"_"+msg
+            #wts.tofile(filename+".txt")
+            #np.savetxt(filename+".txt",wts)
+            self.write_svd(wts,u,s,vt, filename)
+            
+    def write_svd(self,wts,u,s,vt,filename):        
+        df = pd.DataFrame(data=wts.astype(float))
+        df.to_csv(filename+"_wts.csv",sep=' ', header=False, 
+                  float_format='%.2f', index=False)
+        df = pd.DataFrame(data=u.astype(float))
+        df.to_csv(filename+"_u.csv",sep=' ', header=False, 
+                  float_format='%.2f', index=False)
+        df = pd.DataFrame(data=s.astype(float))
+        df.to_csv(filename+"_s.csv",sep=' ', header=False, 
+                  float_format='%.2f', index=False)
+        df = pd.DataFrame(data=vt.astype(float))
+        df.to_csv(filename+"_vt.csv",sep=' ', header=False, 
+                  float_format='%.2f', index=False)
+            
+    def redistribute_wts(self, df_data, layer_cnt):
+        
+        # redistribute weights to remaining neurons weighted by
+        # neuron frequency
+        
+        for layer_id in range(layer_cnt):
+            df_layer_data = df_data.loc[df_data['layer'] == layer_id                                        ]
+            # divide the data into two groups based on which weight is to be pruned
+            df_rem = df_layer_data.loc[df_layer_data["flag"] == 0]
+            df_to_prune = df_layer_data.loc[df_layer_data["flag"] == 1]
+            #retrieve the weight values for the neuron to be redistributed
+            while df_to_prune.empty != True:
+                # get the first row data
+                layer = df_to_prune.iloc[0]["layer"]
+                i = df_to_prune.iloc[0]["i"]
+                df_same = df_to_prune.loc[ (df_to_prune["layer"] == layer) & 
+                                (df_to_prune["i"] == i)]
+                wt_avg = (df_same["neuron_freq"]*df_same["wts"]).sum()/df_same["neuron_freq"].sum()
+                df_rem_same = df_rem.loc[ (df_rem["layer"] == layer) & (df_rem["i"] == i)]
+                neuron_freq_sum = df_rem_same["neuron_freq"].sum()
+                df_rem_same.wts = df_rem_same["wts"] + (df_rem_same["neuron_freq"]/neuron_freq_sum) * wt_avg
+                df_to_prune.drop(df_same.index, inplace=True)
+                # update the original dataframe
+                df_rem.update(df_rem_same)
+            df_data.update(df_rem)
+            
+        
     """
     Sparsify the network by setting weight values to 0 by sorting the  
     weights first on kernel access then neuron frequency and then the smallest 

@@ -13,8 +13,9 @@ import matplotlib.ticker as ticker
 import numpy as np
 import math
 import pandas as pd
+from scipy import stats
 
-class GeneratePlots():
+class Plots():
     def __init__(self, experiment_id):
         self.experiment_id = experiment_id
         experiment = tb.data.experimental.ExperimentFromDev(experiment_id)
@@ -32,7 +33,7 @@ class GeneratePlots():
         new_data = data[~data[col_name].str.contains(filter_value)]
         return new_data
     
-    def __PlotData(self,data, hue, title):
+    def __PlotData(self,data, hue, title, run_type):
         plt.figure(figsize=(4.0, 2.8), dpi=600)
         #plt.subplot(1, 2, 1)
         plt.grid()
@@ -41,15 +42,21 @@ class GeneratePlots():
         plt.rcParams.update({'font.size': 8})
         ax = sns.lineplot(data=data, x="step", y="value", hue=hue, 
                           alpha=1, linewidth=0.8, ci=None)
-        plt.legend(loc='lower right')
+        plt.legend(fontsize=6,loc='lower right')
         x_ticker = range(0,data.step.max(),10)
         ax.set_xticks(x_ticker)
         #y_ticker = np.around(np.linspace(0.7,1,30),decimals=2)
         start = math.floor(data.value.min()*100)
         y_ticker = [ x/100 for x in range(start,102,2)]
         ax.set_yticks(y_ticker)
-        ax.set_title(title)
-        ax.set_ylabel("Accuracy")
+        #ax.set_title(title)
+        ylabel = ""
+        if run_type == "train":
+            ylabel = "Training Accuracy"
+        elif run_type == "validation":
+            ylabel = "Validation Accuracy"
+        
+        ax.set_ylabel(ylabel)
         ax.set_xlabel("Epoch")
         
     def __SavePlot(self, filename):
@@ -66,53 +73,37 @@ class GeneratePlots():
             
     def PlotOptimal(self, prune_dir):
         
-        self.__PlotResetNeuron(prune_dir, "EpochInterval_2", "TotalPruning_2")
-        self.__PlotResetNeuron(prune_dir, "EpochInterval_2", "TotalPruning_4")
-        self.__PlotResetNeuron(prune_dir, "EpochInterval_2", "TotalPruning_6")
-        self.__PlotResetNeuron(prune_dir, "EpochInterval_2", "TotalPruning_8")
-        self.__PlotResetNeuron(prune_dir, "EpochInterval_2", "TotalPruning_10")
+        epoch_interval = ["EpochInterval_2", "EpochInterval_10",
+                         "EpochInterval_20"]
+        total_pruning = ["TotalPruning_2", "TotalPruning_4","TotalPruning_6","TotalPruning_8",
+                         "TotalPruning_10"]
         
-        self.__PlotResetNeuron(prune_dir, "EpochInterval_10", "TotalPruning_2")
-        self.__PlotResetNeuron(prune_dir, "EpochInterval_10", "TotalPruning_4")
-        self.__PlotResetNeuron(prune_dir, "EpochInterval_10", "TotalPruning_6")
-        self.__PlotResetNeuron(prune_dir, "EpochInterval_10", "TotalPruning_8")
-        self.__PlotResetNeuron(prune_dir, "EpochInterval_10", "TotalPruning_10")
+        #self.__PlotResetNeuron("validation", prune_dir, 
+        #                       epoch_interval[0], total_pruning[0])
         
-        self.__PlotResetNeuron(prune_dir, "EpochInterval_20", "TotalPruning_2")
-        self.__PlotResetNeuron(prune_dir, "EpochInterval_20", "TotalPruning_4")
-        self.__PlotResetNeuron(prune_dir, "EpochInterval_20", "TotalPruning_6")
-        self.__PlotResetNeuron(prune_dir, "EpochInterval_20", "TotalPruning_8")
-        self.__PlotResetNeuron(prune_dir, "EpochInterval_20", "TotalPruning_10")
+        for ei in epoch_interval:
+            for tp in total_pruning:
+                self.__PlotResetNeuron("train",prune_dir, ei, tp)
+                self.__PlotResetNeuron("validation",prune_dir, ei, tp)
         
-        self.__PlotResetNeuron(prune_dir, "EpochInterval_40", "TotalPruning_3")
+        self.__PlotResetNeuron("train", prune_dir, "EpochInterval_40", "TotalPruning_3")
+        self.__PlotResetNeuron("validation", prune_dir, "EpochInterval_40", "TotalPruning_3")
         
+        reset_neuron = [True,False]
         
-        self.__PlotNumberOfPruning(prune_dir, "TotalPruning_2", reset_neuron = True)
-        self.__PlotNumberOfPruning(prune_dir, "TotalPruning_4", reset_neuron = True)
-        self.__PlotNumberOfPruning(prune_dir, "TotalPruning_6", reset_neuron = True)
-        self.__PlotNumberOfPruning(prune_dir, "TotalPruning_8", reset_neuron = True)
-        self.__PlotNumberOfPruning(prune_dir, "TotalPruning_10", reset_neuron = True)
+        for tp in total_pruning:
+            for re in reset_neuron:
+                self.__PlotNumberOfPruning("train",prune_dir, tp, re)
+                self.__PlotNumberOfPruning("validation",prune_dir, tp, re)
         
-        self.__PlotNumberOfPruning(prune_dir, "TotalPruning_2")
-        self.__PlotNumberOfPruning(prune_dir, "TotalPruning_4")
-        self.__PlotNumberOfPruning(prune_dir, "TotalPruning_6")
-        self.__PlotNumberOfPruning(prune_dir, "TotalPruning_8")
-        self.__PlotNumberOfPruning(prune_dir, "TotalPruning_10")
-        
-        self.__PlotEpochInterval(prune_dir, "EpochInterval_2", reset_neuron = True)
-        self.__PlotEpochInterval(prune_dir, "EpochInterval_10", reset_neuron = True)
-        self.__PlotEpochInterval(prune_dir, "EpochInterval_20", reset_neuron = True)
-        self.__PlotEpochInterval(prune_dir, "EpochInterval_40", reset_neuron = True)
-        
-        self.__PlotEpochInterval(prune_dir, "EpochInterval_2")
-        self.__PlotEpochInterval(prune_dir, "EpochInterval_10")
-        self.__PlotEpochInterval(prune_dir, "EpochInterval_20")
-        self.__PlotEpochInterval(prune_dir, "EpochInterval_40")
-        
+        for ei in epoch_interval:
+            for re in reset_neuron:
+                self.__PlotEpochInterval("train", prune_dir, ei, re)
+                self.__PlotEpochInterval("validation", prune_dir, ei, re)
         
     
-    def __PlotResetNeuron(self, prune_dir, interval_type, prune_type):
-        data = self.__GetData("train")
+    def __PlotResetNeuron(self, run_type, prune_dir, interval_type, prune_type):
+        data = self.__GetData(run_type)
         data = self.__FilterData(data,"tag","accuracy")
         data = self.__FilterData(data,"run","optimal")
         data = self.__FilterData(data,"run",interval_type + "_")
@@ -129,12 +120,20 @@ class GeneratePlots():
         title = "Epoch Interval:" + interval_label[1] + \
                 ", No. of Pruning: " + pruning_label[1]
         
-        self.__PlotData(data,hue_name, title)
-        self.__SavePlot(prune_dir + "/TrainingAccuracy_ResetNeuron_" + interval_type + 
-                        "_" + prune_type + ".pdf")
+        self.__PlotData(data,hue_name, title, run_type)
+        
+        filename = ""
+        if run_type == "train":
+            filename =  prune_dir + "/TrainingAccuracy_ResetNeuron_" \
+                        + interval_type + "_" + prune_type 
+        elif run_type == "validation":
+            filename =  prune_dir + "/ValidationAccuracy_ResetNeuron_" \
+                        + interval_type + "_" + prune_type 
+            
+        self.__SavePlot(filename + ".pdf")
 
-    def __PlotEpochInterval(self, prune_dir, run_type, reset_neuron=False):
-        data = self.__GetData("train")
+    def __PlotEpochInterval(self, run_type, prune_dir, interval_type, reset_neuron=False):
+        data = self.__GetData(run_type)
         data = self.__FilterData(data,"tag","accuracy")
         standard_data = self.__FilterData(data,"run", "standard")
         std_hue_name = standard_data.run.apply(lambda label: "standard")
@@ -143,26 +142,33 @@ class GeneratePlots():
         else:
             data = self.__ExcludeData(data,"run","ResetNeuron")
         optimal_data = self.__FilterData(data,"run","optimal")
-        optimal_data = self.__FilterData(data,"run",run_type)
+        optimal_data = self.__FilterData(data,"run",interval_type)
         split_name = optimal_data.run.apply(lambda label: label.split("/")[0])
         split_name = split_name.apply(lambda label: label.split("_"))
         hue_name = split_name.apply(lambda label: "No. of Pruning:" + label[7])
         hue_name = hue_name.append(std_hue_name)
         data = optimal_data.append(standard_data)
-        label = run_type.split("_")
+        label = interval_type.split("_")
         title = "Epoch Interval:" + label[1] + ", Reset Neuron: "
         
+        filename = ""
+        if run_type == "train":
+            filename =  prune_dir + "/TrainingAccuracy_" + interval_type  
+        elif run_type == "validation":
+            filename =  prune_dir + "/ValidationAccuracy_" + interval_type 
+                        
         if reset_neuron == True:
             title += "Enabled"
-            run_type += "_ResetNeuron_Enabled"
+            filename += "_ResetNeuron_Enabled"
         else:
             title += "Disabled"
-            run_type += "_ResetNeuron_Disabled"
-        self.__PlotData(data,hue_name, title)
-        self.__SavePlot(prune_dir + "/TrainingAccuracy_" + run_type + ".pdf")
+            filename += "_ResetNeuron_Disabled"
+        self.__PlotData(data,hue_name, title, run_type)
+        self.__SavePlot(filename + ".pdf")
 
-    def __PlotNumberOfPruning(self, prune_dir, run_type, reset_neuron=False):
-        data = self.__GetData("train")
+    def __PlotNumberOfPruning(self, run_type, prune_dir, 
+                              total_pruning, reset_neuron=False):
+        data = self.__GetData(run_type)
         data = self.__FilterData(data,"tag","accuracy")
         standard_data = self.__FilterData(data,"run", "standard")
         std_hue_name = standard_data.run.apply(lambda label: "standard")
@@ -171,31 +177,38 @@ class GeneratePlots():
         else:
             data = self.__ExcludeData(data,"run","ResetNeuron")
         optimal_data = self.__FilterData(data,"run","optimal")
-        optimal_data = self.__FilterData(data,"run",run_type)
+        optimal_data = self.__FilterData(data,"run",total_pruning)
         split_name = optimal_data.run.apply(lambda label: label.split("/")[0])
         split_name = split_name.apply(lambda label: label.split("_"))
         hue_name = split_name.apply(lambda label: "Epoch Interval:" + label[5])
         hue_name = hue_name.append(std_hue_name)
         data = optimal_data.append(standard_data)
-        label = run_type.split("_")
+        label = total_pruning.split("_")
         
         title = "No. of Pruning:" + label[1] + ", Reset Neuron: "
         
+        filename = ""
+        if run_type == "train":
+            filename = prune_dir + "/TrainingAccuracy_" + total_pruning
+        elif run_type == "validation":
+            filename = prune_dir + "/ValidationAccuracy_" + total_pruning
+            
         if reset_neuron == True:
             title += "Enabled"
-            run_type += "_ResetNeuron_Enabled"
+            filename += "_ResetNeuron_Enabled"
         else:
             title += "Disabled"
-            run_type += "_ResetNeuron_Disabled"
-        self.__PlotData(data,hue_name, title)
-        self.__SavePlot(prune_dir + "/TrainingAccuracy_" + run_type + ".pdf")
+            filename += "_ResetNeuron_Disabled"
+        self.__PlotData(data,hue_name, title, run_type)
+        self.__SavePlot(filename + ".pdf")
         
     def AnalyzeLoss(self, prune_dir):
-        #self.__CalculateEILoss("train", prune_dir)
-        #self.__CalculateEILoss("validation", prune_dir)
-        #self.__CalculateNumPruningLoss("train", prune_dir)
-        #self.__CalculateNumPruningLoss("validation", prune_dir)
+        self.__CalculateEILoss("train", prune_dir)
+        self.__CalculateEILoss("validation", prune_dir)
+        self.__CalculateNumPruningLoss("train", prune_dir)
+        self.__CalculateNumPruningLoss("validation", prune_dir)
         self.__CalculateResetNeuronLoss("train", prune_dir)
+        self.__CalculateResetNeuronLoss("validation", prune_dir)
         
     def __CalculateEILoss(self, run_type, prune_dir):
         data = self.__GetData(run_type)
@@ -211,8 +224,7 @@ class GeneratePlots():
         run = run.apply(lambda label: "EI-" + label.split("_")[5] 
                         if "Epoch" in label.split("_")[4] else "Standard")
         min_val_loss['x'] = run
-        bp = sns.boxplot(data=min_val_loss, y=min_val_loss.value, x=min_val_loss.x)
-        bp.set(xlabel='Run',ylabel='Epoch Loss')
+        self.__GeneratePlots(min_val_loss)
         self.__SavePlot(prune_dir + "/" + run_type + "_loss_EpochInterval.pdf")
         
     def __CalculateNumPruningLoss(self, run_type, prune_dir):
@@ -233,8 +245,7 @@ class GeneratePlots():
         min_val_loss = pd.concat([std_loss, min_val_loss])
         run = pd.concat([std_run,run])
         min_val_loss['x'] = run
-        bp = sns.boxplot(data=min_val_loss, y="value", x=min_val_loss.x)
-        bp.set(xlabel='Run',ylabel='Epoch Loss')
+        self.__GeneratePlots(min_val_loss)
         self.__SavePlot(prune_dir + "/" + run_type + "_loss_NumPruning.pdf")
         
     def __CalculateResetNeuronLoss(self, run_type, prune_dir):
@@ -251,11 +262,34 @@ class GeneratePlots():
         std_loss = self.__FilterData(min_loss,"run","standard_")
         std_run = std_loss.run.apply(lambda label: "Standard")
         min_val_loss = pd.concat([std_loss, min_val_loss])
+        #p_std_vs_rn = stats.ttest_ind(std_loss["value"], rn_loss["value"]) 
         run = pd.concat([std_run,run])
         min_val_loss['x'] = run
-        bp = sns.boxplot(data=min_val_loss, y="value", x=min_val_loss.x)
-        bp.set(xlabel='Run',ylabel='Epoch Loss')
+        self.__GeneratePlots(min_val_loss)
         self.__SavePlot(prune_dir + "/" + run_type + "_loss_ResetNeuron.pdf")
+        
+    def __GeneratePlots(self,min_val_loss):
+        bp = sns.boxplot(data=min_val_loss, y="value", x=min_val_loss.x,
+                         linewidth=1)
+        #medians = min_val_loss.groupby(['x'])['value'].median()
+        # offset from median for display
+        #vertical_offset = min_val_loss['value'].median() * 0.002 
+                
+        #iterate over boxes
+        for i,box in enumerate(bp.artists):
+            box.set_edgecolor('black')
+            box.set_facecolor('white')
+            # iterate over whiskers and median lines
+            for j in range(6*i,6*(i+1)):
+                bp.lines[j].set_color('black')
+        
+        #medians = pd.to_numeric(medians.map('{:,.4f}'.format))
+        #for xtick in bp.get_xticks():
+        #    bp.text(xtick,medians[xtick] + vertical_offset,medians[xtick], 
+        #    horizontalalignment='center',size='x-small',color='black',weight='semibold')
+            
+        bp.set(xlabel='Run',ylabel='Epoch Loss')
+        
 """
 #run1_training = df[df.run.str.contains(df.iloc[0].run)]
 #run1_training_acc = run1_training[run1_training.tag.str.contains("accuracy")]

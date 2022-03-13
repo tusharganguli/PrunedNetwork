@@ -16,12 +16,17 @@ run_cnt = 1
 prune_freq = 15
 t_acc = 0.98
 
+# generating the plots after uploading the plots in the 
+# tensorboard dev board
+
+"""
 prune_dir = "optimal_prune_details"
 experiment_id = "VToMCmUyQPOlxHA2KAdkAQ"
-plots = gp.GeneratePlots(experiment_id)
+plots = gp.Plots(experiment_id)
 #plots.PlotOptimal(prune_dir)
-#plots.ConvertToEps(prune_dir)
-plots.AnalyzeLoss(prune_dir)
+#plots.AnalyzeLoss(prune_dir)
+plots.ConvertToEps(prune_dir)
+"""
 
 """
 tensorboard_dir = "standard_results"
@@ -46,17 +51,6 @@ prune_accuracy_threshold : Pruning to be started after reaching this training ac
 prune_freq : Once accuracy is achieved, how many epochs later will the pruning start
 neuron_ctr_start_at_acc : Neuron frequency update to start after reaching this training accuracy
 restart_neuron_count : Reset the neuron counter after pruning
-"""
-
-"""
-model.evaluate(run_type="prune", 
-               num_runs=run_cnt, pruning_type="weights",
-               final_training_accuracy = 80/100,
-               pruning_pct=5, pruning_change=0, 
-               prune_accuracy_threshold=70/100,
-               prune_freq=2,
-               neuron_update_at_acc = 65/100,
-               reset_neuron_count = True)
 """
 
 """
@@ -111,43 +105,103 @@ model.write_to_file(filename = "Results_OptimalPruning.xls")
 """
 Evaluates constant pruning at regular intervals
 """
-
 """
-model.evaluate_interval_pruning(run_type="interval", 
-                                num_runs=run_cnt, 
-                                pruning_type="weights",
-                                final_training_accuracy = 60/100,
-                                pruning_values = [40,20,10,10],
-                                epoch_range = [20,40,80,120],
-                                reset_neuron_count = True)
+tensorboard_dir = "cip_prune_results"
+prune_dir = "cip_prune_details"
+model = mr.ModelRun(db,tensorboard_dir, prune_dir)
 
-model.write_to_file(filename = "Results_IntervalPruning.xls")
+
+model.evaluate_CIP(run_type="interval", 
+                   num_runs=run_cnt, 
+                   pruning_type="weights",
+                   neuron_update_at_acc=75/100,
+                   prune_start_at_acc = 80/100,
+                   num_pruning = 10,
+                   final_training_acc = 98/100,
+                   target_prune_pct=90)
+
+model.write_to_file(filename = "Results_CIPPruning.xls")
 """
+tensorboard_dir = "rwp_prune_results"
+prune_dir = "rwp_prune_details"
+model = mr.ModelRun(db,tensorboard_dir, prune_dir)
+
+
+model.evaluate_RWP(run_type="rwp", 
+                   num_runs=run_cnt, 
+                   pruning_type="weights",
+                   neuron_update_at_acc=1,
+                   prune_start_at_acc = 80/100,
+                   num_pruning = 10,
+                   final_training_acc = 98/100,
+                   target_prune_pct=95)
+
+model.write_to_file(filename = "Results_RWPPruning.xls")
 
 """
 Evaluates one time pruning
 """
 """
+tensorboard_dir = "otp_results"
+prune_dir = "otp_prune_details"
+model = mr.ModelRun(db,tensorboard_dir, prune_dir)
+one_time_neuron_update = 1
+"""
+"""
 model.evaluate_otp(run_type="otp", 
                    num_runs=run_cnt, 
                    pruning_type="weights",
-                   neuron_update_at_acc = 35/100,
-                   target_prune_pct=80,
-                   prune_at_accuracy=40/100,
-                   final_training_accuracy = t_acc)
+                   neuron_update_at_acc = 85/100,
+                   target_prune_pct=90,
+                   prune_at_accuracy=90/100,
+                   final_training_accuracy = t_acc
+                   )
+
 
 """
 """
-for p_pct in range(5,30,5):
-    for acc_th in range(95,75,-5):
-        model.evaluate("sparse",epochs=epoch_cnt, num_layers=layer_cnt, 
-                       neuron_cnt = n_cnt, num_runs=run_cnt, pruning_type="weights",
-                       training_accuracy = t_acc,
-                       pruning_pct=p_pct, pruning_change=0, 
-                       prune_accuracy_threshold=acc_th/100,
-                       prune_freq=prune_freq)
+# neuron update from beginning
+for tp_pct in [70,80,90]:
+    for p_at_acc in range(90,98,2):
+        model.evaluate_otp(run_type="otp", 
+                           num_runs=run_cnt, 
+                           pruning_type="weights",
+                           neuron_update_at_acc = 5/100,
+                           target_prune_pct=tp_pct,
+                           prune_at_accuracy=p_at_acc/100,
+                           final_training_accuracy = t_acc
+                           )
+
+model.write_to_file(filename = "OTP_EarlyNeuronUpdatePruning90AndMore.xls")
+
+# neuron update later
+for tp_pct in [70,80,90]:
+    for p_at_acc in range(90,98,2):
+        model.evaluate_otp(run_type="otp", 
+                           num_runs=run_cnt, 
+                           pruning_type="weights",
+                           neuron_update_at_acc = (p_at_acc-5)/100,
+                           target_prune_pct=tp_pct,
+                           prune_at_accuracy=p_at_acc/100,
+                           final_training_accuracy = t_acc
+                           )
+
+model.write_to_file(filename = "OTP_LateNeuronUpdatePruning90AndMore.xls")
+"""
+
+"""
+# pruning weights based on one time update of the neuron frequency
+for tp_pct in [70,80,90]:
+    for p_at_acc in range(95,15,-10):
+        model.evaluate_otp(run_type="otp", 
+                           num_runs=run_cnt, 
+                           pruning_type="weights",
+                           neuron_update_at_acc = one_time_neuron_update,
+                           target_prune_pct=tp_pct,
+                           prune_at_accuracy=p_at_acc/100,
+                           final_training_accuracy = t_acc)
+model.write_to_file(filename = "OTP_OneTimeNeuronUpdate.xls")
 """      
-#model.write_to_file(filename = "TrainingResults.xls")
 
 """
 model = mr.ModelRun(db,"results")
