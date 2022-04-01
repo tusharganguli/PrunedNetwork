@@ -11,6 +11,8 @@ from tensorflow.keras import backend as K
 import numpy as np
 import pandas as pd
 
+import generate_plots as gp
+
 class PruneNetwork:
     def __init__(self, model):
         self.model = model
@@ -23,6 +25,14 @@ class PruneNetwork:
         # variable for prune_optimal
         self.pruning_rate = 1
         
+        # variable for cip
+        self.first_time = 1
+        self.svd_df = pd.DataFrame() #self.__create_svd_df()
+        self.svd_plot_info = pd.DataFrame(columns=['cacc','tpp'])
+        self.svd_plots = gp.SVDPlots()
+        self.total_pruning_pct = 0
+        self.layer_cnt = 0
+        
     def __create_neurons(self):
         trainable_vars = self.model.trainable_variables
         neuron = []
@@ -33,7 +43,7 @@ class PruneNetwork:
             if trainable_vars[idx].name == "output":
                 continue
             rows,cols = trainable_vars[idx].shape 
-            neuron.append([0 for x in range(cols)])
+            neuron.append(tf.Variable([0 for x in range(cols)]))
             self.neuron_len += cols
         return neuron
     
@@ -123,14 +133,14 @@ class PruneNetwork:
             del kernel
             layer_lst[idx].set_weights(all_weights[idx])      
 
-    def redistribute_and_prune_weights(self, model, pruning_pct):
-        neuron_lst = []
+    def cip(self, model, pruning_pct, curr_acc):
         all_weights = []
         layer_lst = []
         data_lst = []
         dim_lst = []
-        layer_cnt = 0
+        layer_idx = 0
         total_len = 0
+        self.layer_cnt = 0
         
         for layer in model.layers:
             if not isinstance(layer,keras.layers.Dense):
@@ -150,34 +160,40 @@ class PruneNetwork:
             # get the neuron freq 
             prune_flag = 0
             if layer.name != "output":
-                neuron_freq = self.neuron[layer_cnt].numpy()
-                neuron_lst.extend([(layer_cnt, j, neuron_freq[j], prune_flag) 
-                                   for j in range(cols)])
+                neuron_freq = self.neuron[layer_idx].numpy()
+                #neuron_lst.extend([(layer_cnt, j, neuron_freq[j], prune_flag) 
+                #                   for j in range(cols)])
                 
-            layer_lst.append(layer)
+                layer_lst.append(layer)
             
-            data_lst.extend([(layer_cnt,i,j, neuron_freq[j], kernel[i][j], prune_flag) 
+                data_lst.extend([(layer_idx,i,j, neuron_freq[j], kernel[i][j], prune_flag) 
                            for j in range(cols) for i in range(rows)])
             
-            layer_cnt += 1
+                layer_idx += 1
         
+            self.layer_cnt += 1
         
-        
-        df_neuron = pd.DataFrame(neuron_lst, 
-                                 columns=["layer", "j","neuron_freq","flag"])
-        del neuron_lst
-        
-        #is_zero = np.all(kernel[:,idx] == 0)
+        sv_df = self.get_sv(model)
+        self.svd_df = pd.concat([self.svd_df,sv_df], ignore_index=True, axis=1)
         
         df_data = pd.DataFrame(data_lst,
                                columns=["layer","i","j","neuron_freq","wts","flag"])
         del data_lst
         
-        df_neuron_sort = df_neuron.sort_values(["neuron_freq"], ascending=True)
+        
+        df_data_sort = df_data.loc[df_data["wts"] != 0]
+        df_zero_wt = df_data.loc[df_data["wts"] == 0]
+        df_data_sort = df_data_sort.sort_values(["neuron_freq"], ascending=True)
         
         pruning_idx = tf.cast(total_len * (pruning_pct/100),dtype=tf.int32)
-            
-        for idx1,row in df_neuron_sort.iterrows():
+        pruning_idx = pruning_idx.numpy()
+        
+        #start_idx = (df_data_sort.wts.values != 0).argmax()
+        start_idx = 0    
+        df_data_sort.iloc[start_idx:start_idx+pruning_idx,4] = 0
+        
+        """
+        for idx1,row in df_data_sort.iterrows():
             layer = row["layer"]
             n_freq = row["neuron_freq"]
             n_idx = row["j"]
@@ -199,16 +215,15 @@ class PruneNetwork:
             
             if pruning_idx <= 0:
                 break
-            
+        """
+        
         #self.redistribute_wts(df_data, layer_cnt)
         
         # also check the condition number largest sig val / smallest sig val
-        self.svd(all_weights, layer_lst, "BeforePruning")
         
-        # set all pruned wts to 0
-        df_data.loc[df_data["flag"] == 1,"wts"] = 0
         
-        df_data = df_data.sort_values(["layer","i","j"])
+        df_data = df_data_sort.append(df_zero_wt, ignore_index=True)
+        df_data = df_data.sort_values(["layer","i","j"], ascending=True)
         # retrieve all kernel values from the sorted list
         kernel_wts = df_data["wts"]
         
@@ -227,22 +242,68 @@ class PruneNetwork:
             del kernel
             layer_lst[idx].set_weights(all_weights[idx])      
 
-        self.svd(all_weights, layer_lst, "AfterPruning")
+        sv_df = self.get_sv(model)
+        self.svd_df = pd.concat([self.svd_df,sv_df], ignore_index=True, axis=1)
         
-    def svd(self, all_wts, layer_lst, msg):
+        self.total_pruning_pct += pruning_pct
+        info = [[curr_acc,self.total_pruning_pct]]
+        df_info = pd.DataFrame(info, columns=self.svd_plot_info.columns)
+        self.svd_plot_info = self.svd_plot_info.append(df_info)
+        #self.svd_plots.PlotRatio(self.svd_df,layer_cnt, curr_acc, 
+        #                         self.total_pruning_pct, prune_dir)
+        
+    
+    def GetSVDDetails(self):
+        return [self.svd_df,self.svd_plot_info, self.layer_cnt]
+        
+    def ConvertSVDPlots(self, prune_dir):
+        self.svd_plots.ConvertToEps(prune_dir)
+    
+    def get_sv(self, model):
         from scipy.linalg import svd
-        from datetime import datetime
         
-        for idx in range(len(layer_lst)):
-            wts = all_wts[idx][0]
-            u,s,vt = svd(wts)
-            date = datetime.now().strftime("%Y%m%d-%H%M%S")
-            filename = "./svd/" + date + "_layer"+layer_lst[idx].name+"_"+msg
-            #wts.tofile(filename+".txt")
-            #np.savetxt(filename+".txt",wts)
-            self.write_svd(wts,u,s,vt, filename)
+        svd_df = pd.DataFrame()
+        
+        for layer in model.layers:
+            if not isinstance(layer,keras.layers.Dense):
+                continue
+            weights = layer.get_weights()
+            u,s,vt = svd(weights[0])
+            df_s = pd.DataFrame(s)
+            svd_df = pd.concat([svd_df,df_s], ignore_index=True, axis=1)
             
-    def write_svd(self,wts,u,s,vt,filename):        
+        return svd_df        
+            
+    
+    def write_svd(self):
+        import openpyxl 
+        from openpyxl.utils.dataframe import dataframe_to_rows
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        rows = dataframe_to_rows(self.svd_df)
+        
+        for r_idx, row in enumerate(rows, 1):
+            for c_idx, value in enumerate(row, 1):
+                 ws.cell(row=r_idx, column=c_idx, value=value)    
+        from datetime import datetime
+        date = datetime.now().strftime("%Y%m%d-%H%M%S")
+        filename = "./svd/" + date + ".xls"
+        wb.save(filename)         
+        self.svd_df = self.svd_df.iloc[0:0]
+        
+    """
+    def write_svd(self):        
+        from datetime import datetime
+        date = datetime.now().strftime("%Y%m%d-%H%M%S")
+        filename = "./svd/" + date + ".xls"
+        writer = pd.ExcelWriter(filename)
+        # write dataframe to excel
+        self.svd_df.to_excel(writer)
+        # save the excel
+        writer.save()
+        self.svd_df = self.svd_df.iloc[0:0]
+    """    
+    """
         df = pd.DataFrame(data=wts.astype(float))
         df.to_csv(filename+"_wts.csv",sep=' ', header=False, 
                   float_format='%.2f', index=False)
@@ -255,7 +316,7 @@ class PruneNetwork:
         df = pd.DataFrame(data=vt.astype(float))
         df.to_csv(filename+"_vt.csv",sep=' ', header=False, 
                   float_format='%.2f', index=False)
-            
+    """  
     def redistribute_wts(self, df_data, layer_cnt):
         
         # redistribute weights to remaining neurons weighted by
@@ -485,73 +546,3 @@ class PruneNetwork:
             zeros = tf.zeros(self.neuron[idx].shape,dtype=tf.int32)
             self.neuron[idx] = zeros
     
-        
-"""
-    def sparsify_neurons(self, model, pruning_pct):
-            myList = []
-            sorted_lst = []
-            total_len = 0
-            all_weights = []
-            layer_cnt = 0
-            neuron_len = []
-            for layer in model.layers:
-                if isinstance(layer,keras.layers.Dense) == True:
-                    weights = layer.get_weights()
-                    all_weights.append(weights)
-                    neuron_len.append(weights[2].shape[0])
-                    total_len += neuron_len[-1]
-                    myList.extend([(layer_cnt,layer,i,weights[2][i]) for i in range(neuron_len[-1])])
-                    layer_cnt += 1
-            sorted_lst = sorted(myList,key=lambda x: (x[3]))
-            bottom_n = tf.cast(total_len * (pruning_pct/100),dtype=tf.int32)
-            sorted_arr = np.array(sorted_lst)
-            sorted_arr[0:bottom_n,3] = 0
-            sorted_lst = sorted(sorted_arr,key=lambda x: (x[0],x[2]))
-            sorted_arr = np.array(sorted_lst)
-            start = 0
-            for idx in range(layer_cnt):
-                end = start+neuron_len[idx]
-                # initialize the weights to be removed to 0
-                all_weights[idx][0][:,sorted_arr[start:end,3] == 0] = 0
-                all_weights[idx][2][:] = 0 #sorted_arr[start:end,3]
-                sorted_lst[start][1].set_weights(all_weights[idx])
-                start = end
-    
-    def sparsify_neuron_weights(self, model, pruning_pct):
-        total_len = 0
-        all_weights = []
-        layer_cnt = 0
-        layer_list = []
-        neuron_wts_lst = []
-        wts_lst = []
-        neuron_dim = []
-        
-        for layer in model.layers:
-            if isinstance(layer,cl.MyDense) == True:
-                weights = layer.get_weights()
-                dim = weights[2].shape[0]
-                neuron_wts = (weights[0].T * np.reshape(weights[2],(dim,1))).T
-                neuron_wts = neuron_wts.flatten()
-                neuron_wts_lst.extend(neuron_wts)
-                wts_lst.extend(weights[0].flatten())
-                neuron_dim.append(weights[0].shape)
-                total_len += weights[0].shape[0]*weights[0].shape[1]
-                layer_list.append(layer)
-                all_weights.append(weights)
-                layer_cnt += 1
-        bottom_n = tf.cast(total_len * (pruning_pct/100),dtype=tf.int32)
-        neuron_wts_arr = np.array(neuron_wts_lst)
-        idx = neuron_wts_arr.argsort()[:bottom_n]
-        wts_arr = np.array(wts_lst)
-        wts_arr[idx] = 0
-        start = 0
-        offset = 0
-        for idx in range(len(layer_list)):
-            dim = neuron_dim[idx]
-            offset += neuron_dim[idx][0]* neuron_dim[idx][1]
-            wts = np.reshape(wts_arr[start:offset],dim)
-            all_weights[idx][0] = wts
-            all_weights[idx][2][:] = 0
-            start = offset
-            layer_list[idx].set_weights(all_weights[idx])
-"""

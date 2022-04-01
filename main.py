@@ -6,6 +6,7 @@ Created on Tue Aug 31 17:54:36 2021
 @author: tushar
 """
 from tensorflow import keras
+import pandas as pd
 
 import model_run as mr
 import generate_plots as gp
@@ -105,38 +106,23 @@ model.write_to_file(filename = "Results_OptimalPruning.xls")
 """
 Evaluates constant pruning at regular intervals
 """
-"""
 tensorboard_dir = "cip_prune_results"
 prune_dir = "cip_prune_details"
+final_svd_df = pd.DataFrame()
 model = mr.ModelRun(db,tensorboard_dir, prune_dir)
 
 
-model.evaluate_CIP(run_type="interval", 
-                   num_runs=run_cnt, 
-                   pruning_type="weights",
-                   neuron_update_at_acc=75/100,
-                   prune_start_at_acc = 80/100,
-                   num_pruning = 10,
-                   final_training_acc = 98/100,
-                   target_prune_pct=90)
-
-model.write_to_file(filename = "Results_CIPPruning.xls")
-"""
-tensorboard_dir = "rwp_prune_results"
-prune_dir = "rwp_prune_details"
-model = mr.ModelRun(db,tensorboard_dir, prune_dir)
-
-
-model.evaluate_RWP(run_type="rwp", 
+model.evaluate_CIP(run_type="cip", 
                    num_runs=run_cnt, 
                    pruning_type="weights",
                    neuron_update_at_acc=1,
-                   prune_start_at_acc = 80/100,
+                   prune_start_at_acc = 70/100,
                    num_pruning = 10,
-                   final_training_acc = 98/100,
-                   target_prune_pct=95)
+                   final_training_acc = 95/100,
+                   target_prune_pct=80)
+final_sv = model.get_final_sv()
 
-model.write_to_file(filename = "Results_RWPPruning.xls")
+model.write_to_file(filename = "Results_CIPPruning.xls")
 
 """
 Evaluates one time pruning

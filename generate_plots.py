@@ -9,12 +9,115 @@ Created on Wed Oct 27 03:26:01 2021
 import tensorboard as tb
 from matplotlib import pyplot as plt
 import seaborn as sns
-import matplotlib.ticker as ticker
-import numpy as np
 import math
 import pandas as pd
-from scipy import stats
 
+class SVDPlots():
+    def __init__(self):
+        pass
+    
+    def ConvertToEps(self, prune_dir):
+        import glob, os
+        os.chdir("./" + prune_dir)
+        for file in glob.glob("*.pdf"):
+            command = "inkscape " + file + " -o " + file.split(".")[0] + ".eps"
+            os.system(command)
+        
+    def PlotRatio(self, svd_df, svd_plot_info, num_layers, 
+                  final_svd, final_acc, prune_dir):
+        
+        start = 0
+        end = 7
+        for index, row in svd_plot_info.iterrows():
+            curr_acc = row["cacc"]
+            total_pruning_pct = row["tpp"]
+            
+            self.__PlotRelativeRatio(svd_df.loc[:,start:end], curr_acc, 
+                                     total_pruning_pct, num_layers, prune_dir)
+            start = end+1
+            end = start + 7
+        self.__PlotAbsoluteRatio(svd_df, curr_acc, total_pruning_pct, num_layers, prune_dir)
+        # plots the relative difference between the svd before the start of pruning 
+        # and after the final accuracy is achieved.
+        #start_svd_df = svd_df.loc[:,0:5]
+        #self.__PlotFinalRatio(start_svd_df, final_svd, final_acc, num_layers, prune_dir)
+        
+    def __PlotRelativeRatio(self, svd_df, curr_acc, total_pruning_pct, 
+                            num_layers, prune_dir):
+        c = ['r','g','b','y']
+        fig, axs = plt.subplots(num_layers, 1, figsize=(8, 5), constrained_layout=True,)
+       
+    
+        for idx,ax in enumerate(axs.flat):
+            bp = svd_df.iloc[:,-(2*num_layers)+idx]
+            ap = svd_df.iloc[:,-num_layers+idx]
+            # process all columns to remove values < .001
+            # do not set lower value for "before pruning" series as it will 
+            # result in divide by 0 error
+            #bp.where(bp > .001, 0, inplace=True)
+            
+            ap.where(ap > .001, 0, inplace=True)
+            pct_change = ((ap/bp)-1)*100
+            total_neurons = pct_change.count()
+            pct_change = pct_change[pct_change != -100]
+            
+            ax.plot(pct_change.index, pct_change.values, color=c[idx])
+            
+            remaining_neurons = pct_change.count()
+            title = "Layer " + str(idx+1)
+            title += ", Total Neurons:" + str(total_neurons)
+            title += ", Remaining Neurons:" + str(remaining_neurons)
+            ax.set_title(title, fontsize='small', loc='left')
+            
+        title = "Relative Ratio, Accuracy:" + str(format(curr_acc*100,".2f")) + "%"
+        title += ", Total Pruning:" + str(format(total_pruning_pct,".2f")) + "%"
+        fig.suptitle(title)
+        fig.supxlabel("Singular Values")
+        fig.supylabel("Pct. Change")
+        filename = "relative_ratio_at_accuracy_" + str(format(curr_acc*100,".0f")) + ".pdf" 
+        filename = prune_dir + "/" + filename
+        plt.savefig(filename, dpi=600)
+        plt.show()
+        print("plot")
+    
+    def __PlotAbsoluteRatio(self, svd_df, curr_acc, total_pruning_pct, 
+                         num_layers, prune_dir):
+        c = ['r','g','b','y']
+        fig, axs = plt.subplots(num_layers, 1, figsize=(8, 5), constrained_layout=True,)
+       
+    
+        for idx,ax in enumerate(axs.flat):
+            bp = svd_df.iloc[:,idx]
+            ap = svd_df.iloc[:,-num_layers+idx]
+            # process all columns to remove values < .001
+            # do not set lower value for "before pruning" series as it will 
+            # result in divide by 0 error
+            #bp.where(bp > .001, 0, inplace=True)
+            
+            ap.where(ap > .001, 0, inplace=True)
+            pct_change = ((ap/bp)-1)*100
+            total_neurons = pct_change.count()
+            pct_change = pct_change[pct_change != -100]
+            
+            ax.plot(pct_change.index, pct_change.values, color=c[idx])
+            
+            remaining_neurons = pct_change.count()
+            title = "Layer " + str(idx+1)
+            title += ", Total Neurons:" + str(total_neurons)
+            title += ", Remaining Neurons:" + str(remaining_neurons)
+            ax.set_title(title, fontsize='small', loc='left')
+            
+        title = "Ratio Before and After Pruning, Accuracy:" + str(format(curr_acc*100,".2f")) + "%"
+        title += ", Total Pruning:" + str(format(total_pruning_pct,".2f")) + "%"
+        fig.suptitle(title)
+        fig.supxlabel("Singular Values")
+        fig.supylabel("Pct. Change")
+        filename = "final_ratio_at_accuracy_" + str(format(curr_acc*100,".0f")) + ".pdf" 
+        filename = prune_dir + "/" + filename
+        plt.savefig(filename, dpi=600)
+        plt.show()
+        print("plot")
+    
 class Plots():
     def __init__(self, experiment_id):
         self.experiment_id = experiment_id
