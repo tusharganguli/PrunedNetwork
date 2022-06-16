@@ -18,11 +18,33 @@ class SVDPlots():
     
     def ConvertToEps(self, prune_dir):
         import glob, os
+        cwd = os.getcwd()
         os.chdir("./" + prune_dir)
         for file in glob.glob("*.pdf"):
             command = "inkscape " + file + " -o " + file.split(".")[0] + ".eps"
             os.system(command)
+        os.chdir(cwd)
         
+    def PlotSVDiff(self, sv1_df, sv2_df, num_layers):
+        """
+        
+
+        Parameters
+        ----------
+        sv1_df : Dataframe
+            Contains the singular values of each layer of the first model.
+        sv2_df : Dataframe
+            Contains the singular values of each layer of the second model.
+        num_layers : int
+            Contains the total number of layers in the model. Currently comparison 
+            is across models with equal number of layers 
+
+        Returns
+        -------
+        None.
+
+        """
+    
     def PlotRatio(self, svd_df, svd_plot_info, num_layers, 
                   final_svd, final_acc, prune_dir):
         

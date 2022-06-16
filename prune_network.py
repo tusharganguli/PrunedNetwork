@@ -288,7 +288,8 @@ class PruneNetwork:
         from datetime import datetime
         date = datetime.now().strftime("%Y%m%d-%H%M%S")
         filename = "./svd/" + date + ".xls"
-        wb.save(filename)         
+        wb.save(filename) 
+        # reinitialize the dataframe         
         self.svd_df = self.svd_df.iloc[0:0]
         
     """

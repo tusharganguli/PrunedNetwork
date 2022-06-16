@@ -12,6 +12,7 @@ from tensorflow import keras
 # for writing to an excel file
 import pandas as pd
 import numpy as np
+from scipy.linalg import svd
 
 import data
 import pruning_callback as pc
@@ -20,12 +21,12 @@ import custom_model as cmod
 class ModelRun():
     
     def __init__(self,data_set, log_dir, prune_dir):
-        # Load dataset
         
+        # Load dataset
         self.data_set = data_set
         data_obj = data.Data(data_set)
-        (self.valid_img,self.train_img,self.valid_labels,
-        self.train_labels,self.test_images,self.test_labels) = data_obj.load_data()
+        (self.train_img,self.valid_img,self.test_img,
+         self.train_labels,self.valid_labels,self.test_labels) = data_obj.load_data()
         
         self.df = self.__create_data_frame()
         
@@ -45,12 +46,187 @@ class ModelRun():
         self.num_layers = 3
         self.neuron_cnt = [300,100,50]
         
-        # model specific parameters
-        self.sv = pd.DataFrame()
+        
+    def __del__(self):
+        del self.model
+        del self.data_set
+        del self.train_img
+        del self.valid_img
+        del self.test_img
+        
+        
+    def save_model(self, model_dir):
+        """
+        Saves the current model on disk.
+
+        Parameters
+        ----------
+        model_dir : String
+            Specifies the location where to save the model parameters.
+
+        Returns
+        -------
+        None.
+
+        """
+        self.model.save(model_dir)
+        
+    def write_sv(self, sv_df, filename=""):
+        import openpyxl 
+        from openpyxl.utils.dataframe import dataframe_to_rows
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        rows = dataframe_to_rows(sv_df)
+        
+        for r_idx, row in enumerate(rows, 1):
+            for c_idx, value in enumerate(row, 1):
+                 ws.cell(row=r_idx, column=c_idx, value=value)    
+        from datetime import datetime
+        date = datetime.now().strftime("%Y%m%d-%H%M%S")
+        filename = "./svd/" + filename + "_" + date + ".xls"
+        wb.save(filename) 
+        
     
-    def get_final_sv(self):
-        return self.sv
+    def get_svd(self):
+        u,sv,vt = self.__compute_svd()
+        return u,sv,vt
     
+    def __compute_svd(self):
+        
+        sv_df = pd.DataFrame()
+        u_df = pd.DataFrame()
+        vt_df = pd.DataFrame()
+        
+        for layer in self.model.layers:
+            if not isinstance(layer,keras.layers.Dense):
+                continue
+            weights = layer.get_weights()
+            
+            u,s,vt = svd(weights[0], full_matrices=False)
+            
+            sv_df = pd.concat([sv_df, pd.DataFrame(s)], ignore_index=True, axis=1)
+            u_df = pd.concat([u_df, pd.DataFrame(u)], ignore_index=True, axis=1)
+            vt_df = pd.concat([vt_df, pd.DataFrame(vt)], ignore_index=True, axis=1)
+        return u_df,sv_df,vt_df
+    
+    def __generate_low_rank_matrix(A, k):
+        """
+
+        Parameters
+        ----------
+        A : Matrix
+            Full matrix of which we have to generate a low rank matrix.
+            
+        k : Int
+            Dimension to which the matrix has to be reduced
+        Returns
+        -------
+        Low rank matrix.
+
+        """
+        
+        u,s,vt = svd(A, full_matrices=False)
+        #u[:,k:] = 0
+        #s[k:] = 0
+        #S = np.diag(s)
+        #vt[k:,:] = 0
+        
+        u_dim = np.shape(u)[0]
+        vt_dim = np.shape(vt)[1]
+        
+        Ak = np.zeros((u_dim, vt_dim))
+        
+        for i in range(0,k):
+            #uu = np.reshape(u[:,i],(u_dim,1))
+            #vv = np.reshape(vt[i,:],(1,vt_dim))
+            #Ak += s[i] * (uu*vv)
+            Ak += s[i] * np.outer(u.T[i], vt[i])
+        
+        #tmp = np.dot(u, np.dot(S, vt))
+        return Ak
+    
+    
+    def __compute_diff_norm(Ak, B, rank):
+        """
+        Computes the difference of norms for both the matrix based on their
+        singular values.
+
+        Parameters
+        ----------
+        Ak : Matrix 
+            Low rank matrix approximation of the original matrix.
+        B : Matrix
+            Matrix generated with pruning.
+
+        Returns
+        -------
+        Difference of norm values.
+
+        """
+        Ak_s = svd(Ak, full_matrices=False, compute_uv=False)
+        Ak_spec_norm = Ak_s[0]
+        Ak_frob_norm = np.sqrt(np.dot(Ak_s,Ak_s))
+        Ak_nuc_norm = np.sum(Ak_s)
+        
+        B_s = svd(B, full_matrices=False, compute_uv=False)
+        B_spec_norm = B_s[0]
+        B_frob_norm = np.sqrt(np.dot(B_s,B_s))
+        B_nuc_norm = np.sum(B_s)
+        
+        diff_spec = Ak_spec_norm-B_spec_norm
+        diff_frob = Ak_frob_norm-B_frob_norm
+        diff_nuc = Ak_nuc_norm-B_nuc_norm
+        
+        return (diff_spec,diff_frob,diff_nuc)
+        
+    def __compute_matrix_diff_norm(Ak, B):
+        """
+        Parameters
+        ----------
+        Ak : Matrix 
+            Low rank matrix approximation of the original matrix.
+        B : Matrix
+            Matrix generated with pruning.
+
+        Returns
+        -------
+        Norm values of the difference matrix.
+
+        """
+        
+        s = svd(Ak-B, full_matrices=False, compute_uv=False)
+        spectral_norm = s[0]
+        frobenius_norm = np.sqrt(s*s)
+        nuclear_norm = np.sum(s)
+        
+        return spectral_norm,frobenius_norm,nuclear_norm
+    
+    
+    def generate_matrix_norms(std_model, pruned_model):
+        num_layers = len(std_model.layers)
+        df = pd.DataFrame(columns=["Spectral", "Frobenius","Nuclear"])
+        
+        for layer_id in range(0,num_layers):
+            std_layer = std_model.layers[layer_id]
+            pruned_layer = pruned_model.layers[layer_id]
+            
+            # checking only one of the models for dense layer is sufficient
+            if not isinstance(std_layer,keras.layers.Dense) or std_layer.name == 'output':
+                continue
+            
+            std_wts = std_layer.get_weights()[0]
+            pruned_wts = pruned_layer.get_weights()[0]
+        
+            pruned_matrix_rank = np.linalg.matrix_rank(pruned_wts)    
+            Ak = ModelRun.__generate_low_rank_matrix(std_wts,pruned_matrix_rank)
+            diff_spec,diff_frob,diff_nuc = ModelRun.__compute_diff_norm(Ak,pruned_wts,pruned_matrix_rank)
+            data = pd.DataFrame([[diff_spec,diff_frob,diff_nuc]], 
+                                columns=list(df), 
+                                index=["layer"+str(layer_id)])
+            df = df.append(data)
+            del data
+        return df
+        
     def evaluate_standard(self,run_type, num_runs, final_training_accuracy):
         history_list = []
         evaluate_list = []
@@ -73,17 +249,19 @@ class ModelRun():
                                 validation_data=(self.valid_img,self.valid_labels),
                                 callbacks=[stop_cb,tensorboard_cb])
             
+            self.model = model
+            
             num_epochs = stop_cb.get_num_epochs()
             epoch_list.append(num_epochs)
             
             history_list.append(history)    
-            eval_result = model.evaluate(self.test_images,self.test_labels)
+            eval_result = model.evaluate(self.test_img,self.test_labels)
             evaluate_list.append(eval_result)
             (total_trainable_wts,
              total_pruned_wts,prune_pct_achieved) = self.__generate_model_summary(model)
             prune_pct_achieved = prune_pct_achieved.numpy()
             prune_pct_list.append(prune_pct_achieved)
-            del model
+
         self.__log_data(run_type, history_list, evaluate_list, 
                         epoch_list,prune_pct_list )
                 
@@ -138,11 +316,13 @@ class ModelRun():
                                 validation_data=(self.valid_img,self.valid_labels),
                                 callbacks=[stop_cb,pruning_cb,tensorboard_cb])
         
+            self.model = model
+            
             num_epochs = stop_cb.get_num_epochs()
             epoch_list.append(num_epochs)
             
             history_list.append(history)    
-            eval_result = model.evaluate(self.test_images,self.test_labels)
+            eval_result = model.evaluate(self.test_img,self.test_labels)
             evaluate_list.append(eval_result)
             
             (total_trainable_wts,
@@ -195,11 +375,13 @@ class ModelRun():
                                 validation_data=(self.valid_img,self.valid_labels),
                                 callbacks=[stop_cb,pruning_cb,tensorboard_cb])
             
+            self.model = model
+            
             num_epochs = stop_cb.get_num_epochs()
             epoch_list.append(num_epochs)
             
             history_list.append(history)    
-            eval_result = model.evaluate(self.test_images,self.test_labels)
+            eval_result = model.evaluate(self.test_img,self.test_labels)
             evaluate_list.append(eval_result)
             (train_loss,train_accuracy, 
             val_loss, val_accuracy,
@@ -258,11 +440,13 @@ class ModelRun():
                                 validation_data=(self.valid_img,self.valid_labels),
                                 callbacks=[stop_cb,pruning_cb,tensorboard_cb])
             
+            self.model = model
+            
             num_epochs = stop_cb.get_num_epochs()
             epoch_list.append(num_epochs)
             
             history_list.append(history)    
-            eval_result = model.evaluate(self.test_images,self.test_labels)
+            eval_result = model.evaluate(self.test_img,self.test_labels)
             evaluate_list.append(eval_result)
             (train_loss,train_accuracy, 
              val_loss, val_accuracy,
@@ -326,13 +510,13 @@ class ModelRun():
                                 validation_data=(self.valid_img,self.valid_labels),
                                 callbacks=[stop_cb,pruning_cb,tensorboard_cb])
             
-            self.sv = pruning_cb.get_final_sv()
+            self.model = model
             
             num_epochs = stop_cb.get_num_epochs()
             epoch_list.append(num_epochs)
             
             history_list.append(history)    
-            eval_result = model.evaluate(self.test_images,self.test_labels)
+            eval_result = model.evaluate(self.test_img,self.test_labels)
             evaluate_list.append(eval_result)
             (train_loss,train_accuracy, 
              val_loss, val_accuracy,
@@ -393,11 +577,13 @@ class ModelRun():
                                 validation_data=(self.valid_img,self.valid_labels),
                                 callbacks=[stop_cb,pruning_cb,tensorboard_cb])
             
+            self.model = model
+            
             num_epochs = stop_cb.get_num_epochs()
             epoch_list.append(num_epochs)
             
             history_list.append(history)    
-            eval_result = model.evaluate(self.test_images,self.test_labels)
+            eval_result = model.evaluate(self.test_img,self.test_labels)
             evaluate_list.append(eval_result)
             (train_loss,train_accuracy, 
              val_loss, val_accuracy,

@@ -16,6 +16,7 @@ run_cnt = 1
 # number of epochs after which pruning occurs
 prune_freq = 15
 t_acc = 0.98
+model_dir = "model"
 
 # generating the plots after uploading the plots in the 
 # tensorboard dev board
@@ -39,6 +40,19 @@ model.evaluate_standard(run_type="standard",
                         num_runs=run_cnt, 
                         final_training_accuracy = t_acc)
 model.write_to_file(filename = "Results_Standard.xls")
+#u,sv,vt =  model.get_svd()
+#model.write_sv(u,"standard_u")
+#model.write_sv(sv,"standard_sv")
+#model.write_sv(vt,"standard_vt")
+
+#del u
+#del sv
+#del vt
+std_model_dir = model_dir + "/standard"
+model.save_model(std_model_dir)
+del model
+
+
 """
 
 """
@@ -106,9 +120,10 @@ model.write_to_file(filename = "Results_OptimalPruning.xls")
 """
 Evaluates constant pruning at regular intervals
 """
+
+"""
 tensorboard_dir = "cip_prune_results"
 prune_dir = "cip_prune_details"
-final_svd_df = pd.DataFrame()
 model = mr.ModelRun(db,tensorboard_dir, prune_dir)
 
 
@@ -120,10 +135,35 @@ model.evaluate_CIP(run_type="cip",
                    num_pruning = 10,
                    final_training_acc = 95/100,
                    target_prune_pct=80)
-final_sv = model.get_final_sv()
 
 model.write_to_file(filename = "Results_CIPPruning.xls")
 
+#u,sv,vt =  model.get_svd()
+#model.write_sv(u,"cip_u")
+#model.write_sv(sv,"cip_sv")
+#model.write_sv(vt,"cip_vt")
+
+#del u
+#del sv
+#del vt
+
+cip_model_dir = model_dir + "/cip"
+model.save_model(cip_model_dir)
+
+del model
+
+"""
+#"""
+std_model_dir = model_dir + "/standard"
+cip_model_dir = model_dir + "/cip"
+std_model = keras.models.load_model(std_model_dir)
+cip_model = keras.models.load_model(cip_model_dir)
+
+df = mr.ModelRun.generate_matrix_norms(std_model, cip_model)    
+df.to_excel(model_dir+"/matrix_diff.xlsx")      
+    
+#"""
+    
 """
 Evaluates one time pruning
 """
