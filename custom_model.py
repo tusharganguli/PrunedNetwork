@@ -14,7 +14,7 @@ import numpy as np
 class CustomModel(keras.Model):
     def __init__(self, inputs,outputs):
         super(CustomModel, self).__init__(inputs,outputs)
-        self.batch_data = []
+        #self.batch_data = []
         self.neuron_update = False
         self.pruning_flag = False
         
@@ -25,10 +25,15 @@ class CustomModel(keras.Model):
         # Unpack the data. Its structure depends on your model and
         # on what you pass to `fit()`.
         x, y = data
-        self.batch_data = tf.Variable(x, trainable=False)
+        #self.batch_data = tf.Variable(x, trainable=False)
         
         if self.neuron_update == True:
-            self.pn.update_neuron_frequency(x)
+            multiplier = 0.1
+            # use training accuracy to update neuron frequency
+            for m in self.metrics:
+                if m.name == "accuracy":
+                    multiplier = m.result()
+            self.pn.update_neuron_frequency(x, multiplier)
             
         with tf.GradientTape() as tape:
             y_pred = self(x, training=True)  # Forward pass
