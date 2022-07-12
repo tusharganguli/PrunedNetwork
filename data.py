@@ -11,8 +11,20 @@ class Data():
     def __init__(self,dataset,validation_split=0.1):
         self.dataset = dataset
         self.validation_split = validation_split
-        
+    
+    def load_disk(self):
+        """
+        Loads the databse from the disk locally
+
+        Returns
+        -------
+        None.
+
+        """
+    
     def load_data(self):
+        #if type(self.dataset) != tensorflow.keras.datasets:
+        #    return load_disk()
         # Load MNIST dataset
         (train_img, train_labels), (test_img, test_labels) = self.dataset.load_data()
         validation_sz = tf.cast(train_img.shape[0] * self.validation_split, dtype=tf.int32)

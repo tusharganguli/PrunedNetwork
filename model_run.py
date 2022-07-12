@@ -23,7 +23,7 @@ class ModelRun():
     def __init__(self,data_set, log_dir, prune_dir):
         
         # Load dataset
-        self.data_set = data_set
+        #self.data_set = data_set
         data_obj = data.Data(data_set)
         (self.train_img,self.valid_img,self.test_img,
          self.train_labels,self.valid_labels,self.test_labels) = data_obj.load_data()
@@ -49,7 +49,7 @@ class ModelRun():
         
     def __del__(self):
         del self.model
-        del self.data_set
+        #del self.data_set
         del self.train_img
         del self.valid_img
         del self.test_img
@@ -146,88 +146,186 @@ class ModelRun():
         return Ak
     
     
-    def __compute_diff_norm(Ak, B, rank):
+    def __compute_norm(M):
+        """
+        Computes Spectral,Frobenious and Nuclear norm
+
+        Parameters
+        ----------
+        M : Matrix
+            .
+
+        Returns
+        -------
+        Spectral, Forbenious and Nuclear norm.
+
+        """
+        M_s = svd(M, full_matrices=False, compute_uv=False)
+        M_spec_norm = M_s[0]
+        M_frob_norm = np.sqrt(np.dot(M_s,M_s))
+        M_nuc_norm = np.sum(M_s)
+        
+        return (M_spec_norm, M_frob_norm, M_nuc_norm)
+        
+    def __compute_diff_norm(M1, M2):
         """
         Computes the difference of norms for both the matrix based on their
         singular values.
 
         Parameters
         ----------
-        Ak : Matrix 
-            Low rank matrix approximation of the original matrix.
-        B : Matrix
-            Matrix generated with pruning.
+        M1 : Matrix 
+            First Matrix
+        M2 : Matrix
+            Second Matrix.
 
         Returns
         -------
         Difference of norm values.
 
         """
-        Ak_s = svd(Ak, full_matrices=False, compute_uv=False)
-        Ak_spec_norm = Ak_s[0]
-        Ak_frob_norm = np.sqrt(np.dot(Ak_s,Ak_s))
-        Ak_nuc_norm = np.sum(Ak_s)
+        M1_spec_norm, M1_frob_norm, M1_nuc_norm = ModelRun.__compute_norm(M1)
+        M2_spec_norm, M2_frob_norm, M2_nuc_norm = ModelRun.__compute_norm(M2)
         
-        B_s = svd(B, full_matrices=False, compute_uv=False)
-        B_spec_norm = B_s[0]
-        B_frob_norm = np.sqrt(np.dot(B_s,B_s))
-        B_nuc_norm = np.sum(B_s)
-        
-        diff_spec = Ak_spec_norm-B_spec_norm
-        diff_frob = Ak_frob_norm-B_frob_norm
-        diff_nuc = Ak_nuc_norm-B_nuc_norm
+        diff_spec = M1_spec_norm-M2_spec_norm
+        diff_frob = M1_frob_norm-M2_frob_norm
+        diff_nuc = M1_nuc_norm-M2_nuc_norm
         
         return (diff_spec,diff_frob,diff_nuc)
         
-    def __compute_matrix_diff_norm(Ak, B):
-        """
-        Parameters
-        ----------
-        Ak : Matrix 
-            Low rank matrix approximation of the original matrix.
-        B : Matrix
-            Matrix generated with pruning.
-
-        Returns
-        -------
-        Norm values of the difference matrix.
-
-        """
-        
-        s = svd(Ak-B, full_matrices=False, compute_uv=False)
-        spectral_norm = s[0]
-        frobenius_norm = np.sqrt(s*s)
-        nuclear_norm = np.sum(s)
-        
-        return spectral_norm,frobenius_norm,nuclear_norm
     
-    
-    def generate_matrix_norms(std_model, pruned_model):
+    def generate_matrix_norms(std_model, pruned_model, tf_pruned_model):
         num_layers = len(std_model.layers)
         df = pd.DataFrame(columns=["Spectral", "Frobenius","Nuclear"])
         
         for layer_id in range(0,num_layers):
             std_layer = std_model.layers[layer_id]
             pruned_layer = pruned_model.layers[layer_id]
+            tf_pruned_layer = tf_pruned_model.layers[layer_id]
             
             # checking only one of the models for dense layer is sufficient
-            if not isinstance(std_layer,keras.layers.Dense) or std_layer.name == 'output':
+            if not isinstance(std_layer,keras.layers.Dense):
                 continue
             
             std_wts = std_layer.get_weights()[0]
             pruned_wts = pruned_layer.get_weights()[0]
-        
+            tf_pruned_wts = tf_pruned_layer.get_weights()[0]
+            
             pruned_matrix_rank = np.linalg.matrix_rank(pruned_wts)    
             Ak = ModelRun.__generate_low_rank_matrix(std_wts,pruned_matrix_rank)
-            diff_spec,diff_frob,diff_nuc = ModelRun.__compute_diff_norm(Ak,pruned_wts,pruned_matrix_rank)
-            data = pd.DataFrame([[diff_spec,diff_frob,diff_nuc]], 
-                                columns=list(df), 
-                                index=["layer"+str(layer_id)])
+            Tk = ModelRun.__generate_low_rank_matrix(tf_pruned_wts,pruned_matrix_rank)
+            
+            data = pd.DataFrame([["" ,"" ,"" ]],columns=list(df), 
+                                index=["Layer"+str(layer_id)])
             df = df.append(data)
             del data
+            
+            
+            spec_A, frob_A, nuc_A = ModelRun.__compute_norm(std_wts)
+            spec_Ak, frob_Ak, nuc_Ak = ModelRun.__compute_norm(Ak)
+            spec_B, frob_B, nuc_B = ModelRun.__compute_norm(pruned_wts)
+            spec_T, frob_T, nuc_T = ModelRun.__compute_norm(tf_pruned_wts)
+            spec_Tk, frob_Tk, nuc_Tk = ModelRun.__compute_norm(Tk)
+            
+            data = pd.DataFrame([[spec_A,frob_A,nuc_A], 
+                                 [spec_Ak,frob_Ak,nuc_Ak],
+                                 [spec_B,frob_B,nuc_B],
+                                 [spec_T, frob_T, nuc_T],
+                                 [spec_Tk, frob_Tk, nuc_Tk]], 
+                                columns=list(df), 
+                                index=["||Std||", "||Std_k||","||Freq||", 
+                                       "||Mag||", "||Mag_k||"])
+            
+            #df = df.append(data)
+            del data
+            
+            spec_A_Ak, frob_A_Ak, nuc_A_Ak = ModelRun.__compute_diff_norm(std_wts, Ak)
+            spec_A_B, frob_A_B, nuc_A_B = ModelRun.__compute_diff_norm(std_wts, pruned_wts)
+            #spec_Ak_B, frob_Ak_B, nuc_Ak_B = ModelRun.__compute_diff_norm(Ak, pruned_wts)
+            
+            spec_A_T, frob_A_T, nuc_A_T = ModelRun.__compute_diff_norm(std_wts, tf_pruned_wts)
+            #spec_Ak_Tf, frob_Ak_Tf, nuc_Ak_Tf = ModelRun.__compute_diff_norm(Ak, tf_pruned_wts)
+            spec_A_Tk, frob_A_Tk, nuc_A_Tk = ModelRun.__compute_diff_norm(std_wts, Tk)
+            
+            data = pd.DataFrame([[spec_A_Ak,frob_A_Ak,nuc_A_Ak], 
+                                 [spec_A_B,frob_A_B,nuc_A_B],
+                                 #[spec_Ak_B,frob_Ak_B,nuc_Ak_B],
+                                 [spec_A_T, frob_A_T, nuc_A_T],
+                                 #[spec_Ak_Tf, frob_Ak_Tf, nuc_Ak_Tf],
+                                 [spec_A_Tk, frob_A_Tk, nuc_A_Tk],
+                                 ], 
+                                columns=list(df), 
+                                index=["||Std||-||Std_k||", "||Std||-||Freq||",
+                                       "||Std||-||Mag||","||Std||-||Mag_k||"])
+            #df = df.append(data)
+            del data
+            
+            spec_A_Ak,frob_A_Ak,nuc_A_Ak = ModelRun.__compute_norm(std_wts-Ak)
+            spec_A_B,frob_A_B,nuc_A_B = ModelRun.__compute_norm(std_wts-pruned_wts)
+            #spec_Ak_B,frob_Ak_B,nuc_Ak_B = ModelRun.__compute_norm(Ak-pruned_wts)
+            
+            spec_A_T,frob_A_T,nuc_A_T = ModelRun.__compute_norm(std_wts-tf_pruned_wts)
+            #spec_Ak_Tf,frob_Ak_Tf,nuc_Ak_Tf = ModelRun.__compute_norm(Ak-tf_pruned_wts)
+            spec_A_Tk,frob_A_Tk,nuc_A_Tk = ModelRun.__compute_norm(std_wts-Tk)
+            
+            data = pd.DataFrame([#[spec_A_Ak,frob_A_Ak,nuc_A_Ak],
+                                 [spec_A_B,frob_A_B,nuc_A_B],
+                                 #[spec_Ak_B,frob_Ak_B,nuc_Ak_B],
+                                 [spec_A_T,frob_A_T,nuc_A_T],
+                                 #[spec_Ak_Tf,frob_Ak_Tf,nuc_Ak_Tf],
+                                 [spec_A_Tk,frob_A_Tk,nuc_A_Tk],
+                                 ], 
+                                columns=list(df), 
+                                index=["||Std-Freq||", 
+                                       "||Std-Mag||","||Std-Mag_k||"])
+            df = df.append(data)
+            del data
+            
         return df
+    
+    def evaluate_low_rank_approx(self, model, pruned_model):
+        """
+        Generate low rank approximation for each layer of the model. 
+        Set the layer weights accodingly and evaluate the model
+    
+        Parameters
+        ----------
+        model : Keras model obect
+            Model for which we need to generate low rank approximation.
+    
+        Raises
+        ------
+        ValueError
+            DESCRIPTION.
+    
+        Returns
+        -------
+        Int
+            Test Accuracy.
+    
+        """
+        num_layers = len(model.layers)
         
-    def evaluate_standard(self,run_type, num_runs, final_training_accuracy):
+        for layer_id in range(0,num_layers):
+            layer = model.layers[layer_id]
+            pruned_layer = pruned_model.layers[layer_id]
+            
+            # checking only one of the models for dense layer is sufficient
+            if not isinstance(layer,keras.layers.Dense):
+                continue
+            
+            wts = layer.get_weights()
+            pruned_wts = pruned_layer.get_weights()[0]
+            
+            pruned_matrix_rank = np.linalg.matrix_rank(pruned_wts)    
+            Ak = ModelRun.__generate_low_rank_matrix(wts[0],pruned_matrix_rank)
+            wts[0] = Ak
+            layer.set_weights(wts)
+        
+        eval_result = model.evaluate(self.test_img,self.test_labels)
+        return eval_result
+        
+    def evaluate_standard(self, model, run_type, num_runs, final_training_accuracy):
         history_list = []
         evaluate_list = []
         epoch_list = []
@@ -235,7 +333,6 @@ class ModelRun():
         
         for runs in range(num_runs):   
             tf.keras.backend.clear_session()
-            model = self.__create_model(run_type)
             log_file_name = ""
             
             stop_cb = pc.StopCallback(final_training_accuracy)
@@ -532,6 +629,135 @@ class ModelRun():
         self.__log_data(run_type, history_list, evaluate_list, epoch_list,
                         prune_pct_list )
 
+    def prune_trained_model(self, run_type, trained_model, num_pruning, pruning_interval,
+                            final_training_acc, total_prune_pct, reset_neuron=False):
+        
+        log_file_name = run_type
+        log_file_name += "_TotalPruning_" + str(num_pruning)
+        log_file_name += "_EpochInterval_" + str(pruning_interval)
+        log_file_name += "_PrunePct_" + str(total_prune_pct)
+        log_file_name += "_FinalAcc_" + str(final_training_acc)
+        
+        if reset_neuron == True:
+            log_file_name += "_ResetNeuron"    
+            
+        tf.keras.backend.clear_session()
+        
+        #test_model = self.__create_model(run_type)
+        input_layer = trained_model.input
+        output_layer = trained_model.output
+            
+        model = cmod.CustomModel(inputs=input_layer,outputs=output_layer)
+        
+        #stop_cb = pc.StopCallback(final_training_acc)
+        
+        run_log_dir = self.__get_run_logdir(self.log_dir,log_file_name)
+        tensorboard_cb = keras.callbacks.TensorBoard(run_log_dir)
+        pruning_cb = pc.PruneTrainedCallback(model,
+                                             num_pruning,
+                                             pruning_interval,
+                                             total_prune_pct,
+                                             final_training_acc,
+                                             reset_neuron,
+                                             self.log_dir,
+                                             self.prune_dir, log_file_name)
+    
+        model.compile(optimizer=self.optimizer, 
+                      loss=self.loss,
+                      metrics=[self.metrics], 
+                      run_eagerly=True)
+
+        history = model.fit(self.train_img, 
+                            self.train_labels, 
+                            epochs=self.epochs,
+                            validation_data=(self.valid_img,self.valid_labels),
+                            callbacks=[pruning_cb,tensorboard_cb])
+        
+        self.model = model
+        
+        history_list = []
+        evaluate_list = []
+        epoch_list = []
+        prune_pct_list = []
+        
+        num_epochs = pruning_cb.get_num_epochs()
+        epoch_list.append(num_epochs)
+        
+        history_list.append(history)    
+        eval_result = model.evaluate(self.test_img,self.test_labels)
+        evaluate_list.append(eval_result)
+        (train_loss,train_accuracy, 
+         val_loss, val_accuracy,
+         test_loss, test_accuracy) = self.__generate_avg(history_list, 
+                                                     evaluate_list)
+                                                             
+        (total_trainable_wts,
+        total_pruned_wts,prune_pct_achieved) = self.__generate_model_summary(model)
+        prune_pct_achieved = prune_pct_achieved.numpy()
+        prune_pct_list.append(prune_pct_achieved)
+        del model
+    
+        self.__log_data(run_type, history_list, evaluate_list, 
+                        epoch_list, prune_pct_list )
+            
+    def train_pruned_model(self, run_type, pruned_model, final_training_acc):
+        
+        log_file_name = run_type
+        log_file_name += "_FinalAcc_" + str(final_training_acc)
+        
+            
+        tf.keras.backend.clear_session()
+        cloned_model = keras.models.clone_model(pruned_model)
+        cloned_model.set_weights(pruned_model.get_weights())
+        
+        input_layer = cloned_model.input
+        output_layer = cloned_model.output
+            
+        model = keras.models.Model(inputs=input_layer,outputs=output_layer)
+        
+        stop_cb = pc.StopCallback(final_training_acc)
+        
+        run_log_dir = self.__get_run_logdir(self.log_dir,log_file_name)
+        tensorboard_cb = keras.callbacks.TensorBoard(run_log_dir)
+        
+        model.compile(optimizer=self.optimizer, 
+                      loss=self.loss,
+                      metrics=[self.metrics], 
+                      run_eagerly=True)
+
+        history = model.fit(self.train_img, 
+                            self.train_labels, 
+                            epochs=self.epochs,
+                            validation_data=(self.valid_img,self.valid_labels),
+                            callbacks=[stop_cb,tensorboard_cb])
+        
+        self.model = model
+        
+        history_list = []
+        evaluate_list = []
+        epoch_list = []
+        prune_pct_list = []
+        
+        num_epochs = stop_cb.get_num_epochs()
+        epoch_list.append(num_epochs)
+        
+        history_list.append(history)    
+        eval_result = model.evaluate(self.test_img,self.test_labels)
+        evaluate_list.append(eval_result)
+        (train_loss,train_accuracy, 
+         val_loss, val_accuracy,
+         test_loss, test_accuracy) = self.__generate_avg(history_list, 
+                                                     evaluate_list)
+                                                             
+        (total_trainable_wts,
+        total_pruned_wts,prune_pct_achieved) = self.__generate_model_summary(model)
+        prune_pct_achieved = prune_pct_achieved.numpy()
+        prune_pct_list.append(prune_pct_achieved)
+        del model
+        del cloned_model
+        self.__log_data(run_type, history_list, evaluate_list, 
+                        epoch_list, prune_pct_list )
+    
     def evaluate_optimal_pruning(self, run_type, num_runs, pruning_type,
                                  final_training_accuracy, 
                                  epoch_pruning_interval, num_pruning,  
@@ -692,7 +918,7 @@ class ModelRun():
         run_id = log_file_name+run_id
         return os.path.join(log_dir,run_id)
         
-    def __create_model(self,run_type):
+    def create_model(self,run_type):
         if self.num_layers > 4:
             raise ValueError("Maximum 4 layers supported")
             
@@ -709,6 +935,33 @@ class ModelRun():
             final_dense = dense_3
         if self.num_layers >= 4:
             dense_4 = keras.layers.Dense(self.neuron_cnt[3],activation=tf.nn.relu, name="dense_4" )(dense_3)
+            final_dense = dense_4
+        
+        output_layer = keras.layers.Dense(10, activation=tf.nn.softmax, name="output")(final_dense)
+        if run_type != "standard":
+            model = cmod.CustomModel(inputs=input_layer,outputs=output_layer)
+        else:
+            model = keras.models.Model(inputs=input_layer,outputs=output_layer)
+        return model
+    
+    def create_full_dense_model(self,run_type, neuron_lst):
+        num_layers = len(neuron_lst)
+        if num_layers > 4:
+            raise ValueError("Maximum 4 layers supported")
+            
+        input_layer = keras.Input(shape=(28,28), name="input")
+        flatten = keras.layers.Flatten(name="flatten")(input_layer)
+        
+        dense_1 = keras.layers.Dense(neuron_lst[0],activation=tf.nn.relu, name="dense_1" )(flatten)
+        final_dense = dense_1
+        if num_layers >= 2:
+            dense_2 = keras.layers.Dense(neuron_lst[1],activation=tf.nn.relu, name="dense_2" )(dense_1)
+            final_dense = dense_2
+        if num_layers >= 3:
+            dense_3 = keras.layers.Dense(neuron_lst[2],activation=tf.nn.relu, name="dense_3" )(dense_2)
+            final_dense = dense_3
+        if num_layers >= 4:
+            dense_4 = keras.layers.Dense(neuron_lst[3],activation=tf.nn.relu, name="dense_4" )(dense_3)
             final_dense = dense_4
         
         output_layer = keras.layers.Dense(10, activation=tf.nn.softmax, name="output")(final_dense)

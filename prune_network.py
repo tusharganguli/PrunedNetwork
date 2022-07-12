@@ -43,7 +43,7 @@ class PruneNetwork:
             if trainable_vars[idx].name == "output":
                 continue
             rows,cols = trainable_vars[idx].shape 
-            neuron.append(tf.Variable([0 for x in range(cols)]))
+            neuron.append(tf.Variable([0 for x in range(cols)], dtype=tf.float32))
             self.neuron_len += cols
         return neuron
     
@@ -501,21 +501,30 @@ class PruneNetwork:
         # evaluation functions
         self.functors = [K.function([inp], [out]) for out in outputs]    
     
-    def update_neuron_frequency(self,x):
-        count = 0
+    def update_neuron_frequency(self,x, multiplier):
+        idx = 0
         for func in self.functors:
             activation_data = func(x)
-            self.__update_frequency(count,activation_data[0])
-            count += 1
+            self.__update_frequency(idx,activation_data[0],multiplier)
+            idx += 1
     
-    def __update_frequency( self, idx, activation_data):
+    def __update_frequency( self, idx, activation_data,multiplier):
         
         activation_dim = activation_data.shape
         for step in range(0,activation_dim[0]):
             condition = tf.equal(activation_data[step], 0)
-            res_1 = tf.add(self.neuron[idx],1)
+            #neuron_inc = tf.cast(self.neuron[idx],tf.float32)
+            res_1 = tf.add(self.neuron[idx],activation_data[step]*multiplier)
             self.neuron[idx] = tf.where(condition, self.neuron[idx],res_1)
      
+    #def __update_frequency( self, idx, activation_data):
+        
+        #activation_dim = activation_data.shape
+        #for step in range(0,activation_dim[0]):
+            #condition = tf.equal(activation_data[step], 0)
+            #res_1 = tf.add(self.neuron[idx],1)
+            #self.neuron[idx] = tf.where(condition, self.neuron[idx],res_1)
+            
     def get_zeros(self):
         wts = self.model.trainable_variables
         num_zeros = 0
@@ -544,6 +553,6 @@ class PruneNetwork:
     
     def reset_neuron_count(self):
         for idx in range(len(self.neuron)):
-            zeros = tf.zeros(self.neuron[idx].shape,dtype=tf.int32)
+            zeros = tf.zeros(self.neuron[idx].shape,dtype=tf.float32)
             self.neuron[idx] = zeros
     
