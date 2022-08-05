@@ -11,6 +11,69 @@ from matplotlib import pyplot as plt
 import seaborn as sns
 import math
 import pandas as pd
+from tensorflow import keras
+import numpy as np
+
+def matrix_heatmap(std_dir, freq_model_dir, 
+                   tf_model_dir, dir_name):
+    
+    std_model = keras.models.load_model(std_dir)    
+    freq_model = keras.models.load_model(freq_model_dir)    
+    tf_model = keras.models.load_model(tf_model_dir)
+    
+    plt.rc('xtick', labelsize=6)    # fontsize of the tick labels
+    plt.rc('ytick', labelsize=6)
+    
+    idx = 0
+    num_layers = len(freq_model.layers)
+    for idx in range(num_layers):
+        s_layer = std_model.layers[idx]
+        f_layer = freq_model.layers[idx]
+        tf_layer = tf_model.layers[idx]
+        
+        if not isinstance(f_layer,keras.layers.Dense):
+            continue
+        layer_name = s_layer.name
+        
+        s_wts = s_layer.get_weights()[0]
+        dim = s_wts.shape
+        
+        s_bool = s_wts > 0
+        s_bool = np.invert(s_bool)
+        
+        f_wts = f_layer.get_weights()[0]
+        f_bool = f_wts > 0
+        f_bool = np.invert(f_bool)
+        
+        tf_wts = tf_layer.get_weights()[0]
+        tf_bool = tf_wts > 0
+        tf_bool = np.invert(tf_bool)
+        
+        #c_bool = s_bool == f_bool
+        
+        fig, (ax1,ax2,ax3) = plt.subplots(1,3)
+        title = layer_name + ": " + str(dim[0]) + "x" + str(dim[1])
+        fig.suptitle( title, fontsize=10)
+        
+        ax1.set_title('Standard')
+        im1 = ax1.imshow(s_bool, cmap='hot', interpolation='nearest')
+        im1.set_clim(0,1)
+        
+        ax2.set_title('Frequency')
+        im2 = ax2.imshow(f_bool, cmap='hot', interpolation='nearest')
+        im2.set_clim(0,1)
+        
+        ax3.set_title('Magnitude')
+        im3 = ax3.imshow(tf_bool, cmap='hot', interpolation='nearest')
+        im3.set_clim(0,1)
+        
+        #axs[1,1].set_title('Difference')
+        #im4 = axs[1,1].imshow(c_bool, cmap='hot', interpolation='nearest')
+        
+        filename = dir_name + "/" + layer_name + ".png"
+        plt.savefig(filename, dpi=600)
+        plt.show()
+        
 
 class SVDPlots():
     def __init__(self):
@@ -20,9 +83,12 @@ class SVDPlots():
         import glob, os
         cwd = os.getcwd()
         os.chdir("./" + prune_dir)
-        for file in glob.glob("*.pdf"):
-            command = "inkscape " + file + " -o " + file.split(".")[0] + ".eps"
-            os.system(command)
+        filetypes = ("*.pdf","*.png")
+        
+        for extension in filetypes:
+            for file in glob.glob(extension):
+                command = "inkscape " + file + " -o " + file.split(".")[0] + ".eps"
+                os.system(command)
         os.chdir(cwd)
         
     def PlotSVDiff(self, sv1_df, sv2_df, num_layers):
@@ -49,7 +115,7 @@ class SVDPlots():
                   final_svd, final_acc, prune_dir):
         
         start = 0
-        end = 7
+        end = (2*num_layers)-1
         for index, row in svd_plot_info.iterrows():
             curr_acc = row["cacc"]
             total_pruning_pct = row["tpp"]
@@ -57,7 +123,7 @@ class SVDPlots():
             self.__PlotRelativeRatio(svd_df.loc[:,start:end], curr_acc, 
                                      total_pruning_pct, num_layers, prune_dir)
             start = end+1
-            end = start + 7
+            end = start+(2*num_layers)-1
         self.__PlotAbsoluteRatio(svd_df, curr_acc, total_pruning_pct, num_layers, prune_dir)
         # plots the relative difference between the svd before the start of pruning 
         # and after the final accuracy is achieved.
@@ -66,7 +132,7 @@ class SVDPlots():
         
     def __PlotRelativeRatio(self, svd_df, curr_acc, total_pruning_pct, 
                             num_layers, prune_dir):
-        c = ['r','g','b','y']
+        c = ['r','g','b','y','k']
         fig, axs = plt.subplots(num_layers, 1, figsize=(8, 5), constrained_layout=True,)
        
     
@@ -80,15 +146,15 @@ class SVDPlots():
             
             ap.where(ap > .001, 0, inplace=True)
             pct_change = ((ap/bp)-1)*100
-            total_neurons = pct_change.count()
+            total_sig_vals = pct_change.count()
             pct_change = pct_change[pct_change != -100]
             
             ax.plot(pct_change.index, pct_change.values, color=c[idx])
             
-            remaining_neurons = pct_change.count()
+            rem_sig_vals = pct_change.count()
             title = "Layer " + str(idx+1)
-            title += ", Total Neurons:" + str(total_neurons)
-            title += ", Remaining Neurons:" + str(remaining_neurons)
+            title += ", Total Singular Values:" + str(total_sig_vals)
+            title += ", Remaining Neurons:" + str(rem_sig_vals)
             ax.set_title(title, fontsize='small', loc='left')
             
         title = "Relative Ratio, Accuracy:" + str(format(curr_acc*100,".2f")) + "%"
@@ -104,7 +170,7 @@ class SVDPlots():
     
     def __PlotAbsoluteRatio(self, svd_df, curr_acc, total_pruning_pct, 
                          num_layers, prune_dir):
-        c = ['r','g','b','y']
+        c = ['r','g','b','y','k']
         fig, axs = plt.subplots(num_layers, 1, figsize=(8, 5), constrained_layout=True,)
        
     
@@ -118,18 +184,18 @@ class SVDPlots():
             
             ap.where(ap > .001, 0, inplace=True)
             pct_change = ((ap/bp)-1)*100
-            total_neurons = pct_change.count()
+            total_sig_vals = pct_change.count()
             pct_change = pct_change[pct_change != -100]
             
             ax.plot(pct_change.index, pct_change.values, color=c[idx])
             
-            remaining_neurons = pct_change.count()
+            rem_sig_vals = pct_change.count()
             title = "Layer " + str(idx+1)
-            title += ", Total Neurons:" + str(total_neurons)
-            title += ", Remaining Neurons:" + str(remaining_neurons)
+            title += ", Total Singular Values:" + str(total_sig_vals)
+            title += ", Remaining Singular Values:" + str(rem_sig_vals)
             ax.set_title(title, fontsize='small', loc='left')
             
-        title = "Ratio Before and After Pruning, Accuracy:" + str(format(curr_acc*100,".2f")) + "%"
+        title = "Absolute Ratio, Accuracy:" + str(format(curr_acc*100,".2f")) + "%"
         title += ", Total Pruning:" + str(format(total_pruning_pct,".2f")) + "%"
         fig.suptitle(title)
         fig.supxlabel("Singular Values")

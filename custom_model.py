@@ -8,8 +8,6 @@ Created on Fri Sep 10 21:27:25 2021
 
 import tensorflow as tf
 from tensorflow import keras
-from tensorflow.keras import backend as K
-import numpy as np
 
 class CustomModel(keras.Model):
     def __init__(self, inputs,outputs):
@@ -28,12 +26,12 @@ class CustomModel(keras.Model):
         #self.batch_data = tf.Variable(x, trainable=False)
         
         if self.neuron_update == True:
-            multiplier = 0.1
+            curr_acc = 0.001
             # use training accuracy to update neuron frequency
             for m in self.metrics:
                 if m.name == "accuracy":
-                    multiplier = m.result()
-            self.pn.update_neuron_frequency(x, multiplier)
+                    curr_acc = m.result()
+            self.pn.update_neuron_frequency(x, curr_acc)
             
         with tf.GradientTape() as tape:
             y_pred = self(x, training=True)  # Forward pass
@@ -79,4 +77,5 @@ class CustomModel(keras.Model):
     
     def disable_neuron_update(self):
         self.neuron_update = False
+        
     
