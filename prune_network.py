@@ -541,15 +541,16 @@ class PruneNetwork:
     
     def __update_frequency( self, idx, activation_data,curr_acc):
         
-        condition = tf.equal(activation_data, 0)
         neuron_inc = 1
-        if self.neuron_update_type == "act_acc":
-            neuron_inc = curr_acc*(activation_data)
-        elif self.neuron_update_type == "act":
-            neuron_inc = activation_data
         
         activation_dim = activation_data.shape
         for step in range(0,activation_dim[0]):
+            
+            if self.neuron_update_type == "act_acc":
+                neuron_inc = curr_acc*(activation_data[step])
+            elif self.neuron_update_type == "act":
+                neuron_inc = activation_data[step]
+                
             condition = tf.equal(activation_data[step], 0)
             res_1 = tf.add(self.neuron[idx],neuron_inc)
             self.neuron[idx] = tf.where(condition, self.neuron[idx],res_1)

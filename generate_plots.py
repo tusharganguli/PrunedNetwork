@@ -13,6 +13,7 @@ import math
 import pandas as pd
 from tensorflow import keras
 import numpy as np
+import os
 
 def matrix_heatmap(std_dir, freq_model_dir, 
                    tf_model_dir, dir_name):
@@ -224,21 +225,24 @@ class Plots():
         new_data = data[~data[col_name].str.contains(filter_value)]
         return new_data
     
-    def __PlotData(self,data, hue, title, run_type):
+    def __PlotData(self,data, hue, title, run_type, legend_title):
         plt.figure(figsize=(4.0, 2.8), dpi=600)
         #plt.subplot(1, 2, 1)
         plt.grid()
         #plt.rcParams.update({'font.family':'sans-serif'})
         plt.rcParams["font.family"] = "Times New Roman"
         plt.rcParams.update({'font.size': 8})
+        
         ax = sns.lineplot(data=data, x="step", y="value", hue=hue, 
                           alpha=1, linewidth=0.8, ci=None)
-        plt.legend(fontsize=6,loc='lower right')
+        plt.legend(fontsize=6,loc='lower right', title=legend_title)
         x_ticker = range(0,data.step.max(),10)
         ax.set_xticks(x_ticker)
         #y_ticker = np.around(np.linspace(0.7,1,30),decimals=2)
+        step = 4
         start = math.floor(data.value.min()*100)
-        y_ticker = [ x/100 for x in range(start,102,2)]
+        end = math.ceil(data.value.max()*100) + step
+        y_ticker = [ x/100 for x in range(start,end,step)]
         ax.set_yticks(y_ticker)
         #ax.set_title(title)
         ylabel = ""
@@ -251,17 +255,154 @@ class Plots():
         ax.set_xlabel("Epoch")
         
     def __SavePlot(self, filename):
-        #plt.savefig(filename, format='eps')
+        
+        dir_name = filename.rpartition("/")[0]
+        if not os.path.exists(dir_name):
+            os.makedirs(dir_name)
+        
         plt.savefig(filename)
         plt.close()
         
-    def ConvertToEps(self, prune_dir):
+    def ConvertToEps(prune_dir):
         import glob, os
         os.chdir("./" + prune_dir)
         for file in glob.glob("*.pdf"):
             command = "inkscape " + file + " -o " + file.split(".")[0] + ".eps"
             os.system(command)
+    
+    def __get_file_name(self, prune_dir, run_type, filters):
+        file_name = prune_dir + "/" + run_type + "_"
+        
+        for f in filters:
+            file_name +=  f + "_"
+        file_name += ".pdf"
+        return file_name
+        
+    def PlotIntervalPruning(self, prune_dir):
+        
+        neuron_update = ["ctr", "activacc","act"]
+        prune_type = ["neurwts","neuron"]
+        prune_pct = ["PrunePct_80","PrunePct_85","PrunePct_90"]
+        num_pruning = ["NumPruning_10_","NumPruning_1_","NumPruning_5_"]
+        
+        flags = {}
+        flags["neuron_update"] = neuron_update
+        flags["prune_type"] =prune_type
+        flags["prune_pct"] = prune_pct
+        flags["num_pruning"] = num_pruning
+        
+        for p_pct in prune_pct:
+            for n_pruning in num_pruning:
+                title = "Neuron Update"
+                filters = [p_pct,n_pruning]
+                
+                run_type = "train"
+                self.__Plot(run_type, title, filters, flags)
+                file_name = self.__get_file_name(prune_dir, run_type, filters)
+                self.__SavePlot(file_name)
+                
+                run_type = "validation"
+                self.__Plot(run_type, title, filters, flags)
+                file_name = self.__get_file_name(prune_dir, run_type, filters)
+                self.__SavePlot(file_name)
+                
+        for n_update in neuron_update:
+            for p_type in prune_type:
+                title = "Neuron Update"
+                filters = [n_update, p_type]
+                
+                run_type = "train"
+                self.__Plot(run_type, title, filters, flags)
+                file_name = self.__get_file_name(prune_dir, run_type, filters)
+                self.__SavePlot(file_name)
+        
+                run_type = "validation"
+                self.__Plot(run_type, title, filters, flags)
+                file_name = self.__get_file_name(prune_dir, run_type, filters)
+                self.__SavePlot(file_name)
+                
+
+    def __Plot(self, run_type, title, filter_lst, flags):
+        data = self.__GetData(run_type)
+        data = self.__FilterData(data,"tag", "accuracy")
+        filter_data = data
+        for fil in filter_lst:
+            filter_data = self.__FilterData(filter_data,"run", fil)
+        
+        hue_names, legend_title = self.__get_hue_names(filter_data, filter_lst, flags)
+        
+        self.__PlotData(filter_data,hue_names, title, run_type, legend_title)
+        
+    def __get_legend_title(self, filter_lst, flags):
+        legend_title = ""
+        
+        check = any(item in filter_lst for item in flags["neuron_update"])
+        if not check:
+            legend_title += "Neuron Update "
+        check = any(item in filter_lst for item in flags["prune_type"])
+        if not check:
+            legend_title += " Prune Type "
+        check = any(item in filter_lst for item in flags["prune_pct"])
+        if not check:
+            legend_title += " Prune % "
+        check = any(item in filter_lst for item in flags["num_pruning"])
+        if not check:
+            legend_title += " Num Pruning "
+        
+        return legend_title
+    
+    def get_hue_name(self, row, filter_lst, flags):
+        name = ""
+        
+        flag_lst = flags["neuron_update"]
+        check = any(item in  flag_lst for item in filter_lst)
+        if not check:
+            if "ctr" in flag_lst and "ctr" in row:
+                name += " Counter "
+            elif "activacc" in flag_lst and "activacc" in row:
+                name += " Activation Accuracy "
+            elif "acc" in flag_lst and "acc" in row:
+                name += " Accuracy "
+        
+        flag_lst = flags["prune_type"]
+        check = any(item in flag_lst for item in filter_lst)
+        if not check:
+            if "neurwts" in flag_lst and "neurwts" in row:
+                name += " Neuron Wts "
+            elif "neuron" in flag_lst and "neuron" in row:
+                name += " Neuron "
             
+        
+        flag_lst = flags["prune_pct"]
+        check = any(item in  flag_lst for item in filter_lst)
+        if not check:
+            if "PrunePct_80" in flag_lst and "PrunePct_80" in row:
+                name += " Pct:80 "
+            elif "PrunePct_85" in flag_lst and "PrunePct_85" in row:
+                name += " Pct:85 "
+            elif "PrunePct_90" in flag_lst and "PrunePct_90" in row:
+                name += " Pct:90 "
+        
+        flag_lst = flags["num_pruning"]
+        check = any(item in  flag_lst for item in filter_lst)
+        if not check:
+            if "NumPruning_1_" in flag_lst and "NumPruning_1_" in row:
+                name += " Pruning:1 "
+            elif "NumPruning_5_" in flag_lst and "NumPruning_5_" in row:
+                name += " Pruning:5 "
+            elif "NumPruning_10_" in flag_lst and "NumPruning_10_" in row:
+                name += " Pruning:10 "
+        
+        return name
+    
+    def __get_hue_names(self, data, filter_lst, flags):
+        
+        run_name = data.run.apply(lambda label: label.split("/")[0])
+        hue_names = [self.get_hue_name(r,filter_lst,flags) for r in run_name]
+        legend_title = self.__get_legend_title(filter_lst,flags)
+        #hue_name = hue_name.apply(lambda label: name if n_update in label && p_type in label and p_pct in label and n_pruing in label)
+        return (hue_names,legend_title)
+                       
     def PlotOptimal(self, prune_dir):
         
         epoch_interval = ["EpochInterval_2", "EpochInterval_10",

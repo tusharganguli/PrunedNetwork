@@ -37,6 +37,17 @@ plots = gp.Plots(experiment_id)
 plots.ConvertToEps(prune_dir)
 """
 
+def generate_tb_data():
+    prune_dir = "cip/tb_dev_results"
+    experiment_id = "Qf3qKjq6Rxu9iG5LLUOnWQ"
+    #plots = gp.Plots(experiment_id)
+    #plots.PlotIntervalPruning(prune_dir)
+    gp.Plots.ConvertToEps(prune_dir)
+    
+#generate_tb_data()
+
+
+
 std_full_dense_dir = model_dir + "/standard_full_dense"
 std_dir = model_dir + "/standard"
 run_cnt = 3
@@ -152,7 +163,7 @@ def cip_pruning():
                                model_dir, plot_dir)
     
     prune_start_at = 80/100
-    n_pruning_lst = [1,5,10]
+    n_pruning_lst = [10]
     f_acc = 98/100
     prune_pct_lst = [80,85,90]
     #r_neuron = False
@@ -210,7 +221,7 @@ def cip_pruning():
     log_handler.write_to_file(prune_filename)
     del model_run
 
-cip_pruning()
+#cip_pruning()
 
 def cip_test():
     log_dir = "cip"
@@ -220,14 +231,14 @@ def cip_test():
     
     
     prune_start_at = 80/100
-    n_pruning = 5
+    n_pruning = 1
     f_acc = 98/100
     prune_pct = 80
-    r_neuron = True
+    r_neuron = False
     delta = 0.1
     
     # neuron_update: ctr,act,act_acc
-    n_update = "ctr"
+    n_update = "act"
     # pruning_type: neuron, neuron_wts
     p_type = "neuron"
     
