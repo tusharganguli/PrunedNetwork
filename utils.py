@@ -18,8 +18,6 @@ from openpyxl.utils.dataframe import dataframe_to_rows
 from datetime import datetime
 import tempfile
 
-import generate_plots as gp
-
 class LogHandler:
     #df = pd.DataFrame(columns = ['Epoch', 
     #                             'Total Trainable Wts',
@@ -136,7 +134,7 @@ class LogHandler:
         return plot_dir
     
     def log_data(self, pruning_type, history, eval_result, 
-                   num_epochs, prune_pct, prune_at_acc=0):
+                   num_epochs, prune_pct=0, prune_at_acc=0):
         
         #(train_loss,train_accuracy, 
         # val_loss, val_accuracy,
@@ -186,8 +184,9 @@ class LogHandler:
         
         train_loss = train_accuracy = val_loss = 0
         val_accuracy = test_loss = test_accuracy = 0
-        count = len(history_list)
         
+        """
+        count = len(history_list)
         for idx in range(count):
             train_loss += history_list[idx].history["loss"][-1]
             train_accuracy += history_list[idx].history["accuracy"][-1]
@@ -201,6 +200,14 @@ class LogHandler:
         val_accuracy /= count
         test_loss /= count
         test_accuracy /= count
+        """
+        train_loss = history_list[-1].history["loss"][-1]
+        train_accuracy = history_list[-1].history["accuracy"][-1]
+        val_loss = history_list[-1].history["val_loss"][-1]
+        val_accuracy = history_list[-1].history["val_accuracy"][-1]
+        test_loss = evaluate_list[-1][0]
+        test_accuracy = evaluate_list[-1][1]
+        
         return (train_loss,train_accuracy, 
                 val_loss, val_accuracy, 
                 test_loss, test_accuracy )

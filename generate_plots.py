@@ -14,6 +14,7 @@ import pandas as pd
 from tensorflow import keras
 import numpy as np
 import os
+import utils
 
 def matrix_heatmap(std_dir, freq_model_dir, 
                    tf_model_dir, dir_name):
@@ -208,10 +209,28 @@ class SVDPlots():
         print("plot")
     
 class Plots():
-    def __init__(self, experiment_id):
-        self.experiment_id = experiment_id
+    
+    def ConvertToEps(prune_dir):
+        import glob, os
+        os.chdir("./" + prune_dir)
+        for file in glob.glob("*.pdf"):
+            command = "inkscape " + file + " -o " + file.split(".")[0] + ".eps"
+            os.system(command)
+    
+    def download_and_save(experiment_id, tbdev_dir, file_name):
         experiment = tb.data.experimental.ExperimentFromDev(experiment_id)
-        self.df = experiment.get_scalars()
+        df = experiment.get_scalars()
+        file_name = tbdev_dir + "/" + file_name + ".xls"
+        utils.write(df,file_name)
+        
+    def __init__(self, tbdev_file_name, prune_filename):
+        
+        self.df = pd.read_excel(tbdev_file_name)
+        # the first row that we read from the excel file contains na values
+        self.df=self.df.dropna(how='all')
+        self.pruning_df = pd.read_excel(prune_filename, usecols="A:E,G")
+        self.pruning_df = self.pruning_df.dropna(how='all')
+        
         
     def __GetData(self, filter_value):
         data = self.df[self.df.run.str.contains(filter_value)]
@@ -225,7 +244,7 @@ class Plots():
         new_data = data[~data[col_name].str.contains(filter_value)]
         return new_data
     
-    def __PlotData(self,data, hue, title, run_type, legend_title):
+    def __PlotData(self,data, hue, title, run_type, plot_type, legend_title):
         plt.figure(figsize=(4.0, 2.8), dpi=600)
         #plt.subplot(1, 2, 1)
         plt.grid()
@@ -235,21 +254,44 @@ class Plots():
         
         ax = sns.lineplot(data=data, x="step", y="value", hue=hue, 
                           alpha=1, linewidth=0.8, ci=None)
-        plt.legend(fontsize=6,loc='lower right', title=legend_title)
-        x_ticker = range(0,data.step.max(),10)
+        
+        if plot_type == "loss":
+            plt.legend(fontsize=6,loc='upper right', title=legend_title)
+        else:
+            plt.legend(fontsize=6,loc='lower right', title=legend_title)
+        #elif plot_type == "loss":
+            #plt.legend(fontsize=6,loc='upper right', title=legend_title)
+            
+        x_ticker = range(0,math.ceil(data.step.max()),10)
         ax.set_xticks(x_ticker)
         #y_ticker = np.around(np.linspace(0.7,1,30),decimals=2)
         step = 4
-        start = math.floor(data.value.min()*100)
-        end = math.ceil(data.value.max()*100) + step
+        #start = math.floor(data.value.min()*100)
+        #end = math.ceil(data.value.max()*100) + step
+        
+        if plot_type == "accuracy":
+            start = 50
+            end = 100
+        elif plot_type == "loss":
+            step = 10
+            start = 0
+            end = 160
+        else:
+            raise ValueError("Illegal plot type passed.")
+            
         y_ticker = [ x/100 for x in range(start,end,step)]
         ax.set_yticks(y_ticker)
         #ax.set_title(title)
         ylabel = ""
         if run_type == "train":
-            ylabel = "Training Accuracy"
+            ylabel = "Training"
         elif run_type == "validation":
-            ylabel = "Validation Accuracy"
+            ylabel = "Validation"
+        
+        if plot_type == "accuracy":
+            ylabel += " Accuracy"
+        elif plot_type == "loss":
+            ylabel += " Loss"
         
         ax.set_ylabel(ylabel)
         ax.set_xlabel("Epoch")
@@ -263,137 +305,114 @@ class Plots():
         plt.savefig(filename)
         plt.close()
         
-    def ConvertToEps(prune_dir):
-        import glob, os
-        os.chdir("./" + prune_dir)
-        for file in glob.glob("*.pdf"):
-            command = "inkscape " + file + " -o " + file.split(".")[0] + ".eps"
-            os.system(command)
-    
-    def __get_file_name(self, prune_dir, run_type, filters):
-        file_name = prune_dir + "/" + run_type + "_"
+    def __get_file_name(self, prune_dir, run_type, plot_type, filters):
+        file_name = prune_dir + "/" + run_type + "_" + plot_type + "_"
         
         for f in filters:
             file_name +=  f + "_"
         file_name += ".pdf"
         return file_name
-        
-    def PlotIntervalPruning(self, prune_dir):
-        
-        neuron_update = ["ctr", "activacc","act"]
-        prune_type = ["neurwts","neuron"]
-        prune_pct = ["PrunePct_80","PrunePct_85","PrunePct_90"]
-        num_pruning = ["NumPruning_10_","NumPruning_1_","NumPruning_5_"]
-        
-        flags = {}
-        flags["neuron_update"] = neuron_update
-        flags["prune_type"] =prune_type
-        flags["prune_pct"] = prune_pct
-        flags["num_pruning"] = num_pruning
-        
-        for p_pct in prune_pct:
-            for n_pruning in num_pruning:
-                title = "Neuron Update"
-                filters = [p_pct,n_pruning]
-                
-                run_type = "train"
-                self.__Plot(run_type, title, filters, flags)
-                file_name = self.__get_file_name(prune_dir, run_type, filters)
-                self.__SavePlot(file_name)
-                
-                run_type = "validation"
-                self.__Plot(run_type, title, filters, flags)
-                file_name = self.__get_file_name(prune_dir, run_type, filters)
-                self.__SavePlot(file_name)
-                
-        for n_update in neuron_update:
-            for p_type in prune_type:
-                title = "Neuron Update"
-                filters = [n_update, p_type]
-                
-                run_type = "train"
-                self.__Plot(run_type, title, filters, flags)
-                file_name = self.__get_file_name(prune_dir, run_type, filters)
-                self.__SavePlot(file_name)
-        
-                run_type = "validation"
-                self.__Plot(run_type, title, filters, flags)
-                file_name = self.__get_file_name(prune_dir, run_type, filters)
-                self.__SavePlot(file_name)
-                
-
-    def __Plot(self, run_type, title, filter_lst, flags):
-        data = self.__GetData(run_type)
-        data = self.__FilterData(data,"tag", "accuracy")
-        filter_data = data
-        for fil in filter_lst:
-            filter_data = self.__FilterData(filter_data,"run", fil)
-        
-        hue_names, legend_title = self.__get_hue_names(filter_data, filter_lst, flags)
-        
-        self.__PlotData(filter_data,hue_names, title, run_type, legend_title)
-        
+                 
     def __get_legend_title(self, filter_lst, flags):
         legend_title = ""
         
         check = any(item in filter_lst for item in flags["neuron_update"])
         if not check:
-            legend_title += "Neuron Update "
+            legend_title += "Neuron Update,"
         check = any(item in filter_lst for item in flags["prune_type"])
         if not check:
-            legend_title += " Prune Type "
+            legend_title += "Prune Type,Actual,"
         check = any(item in filter_lst for item in flags["prune_pct"])
         if not check:
-            legend_title += " Prune % "
+            legend_title += "Total,Actual,"
         check = any(item in filter_lst for item in flags["num_pruning"])
         if not check:
-            legend_title += " Num Pruning "
+            legend_title += "Pruning,"
         
-        return legend_title
+        return legend_title[0:-1]
     
+    def __get_true_pruning(self, row):
+        pruning_df = self.pruning_df
+        if "ctr" in row:
+            pruning_df = pruning_df[pruning_df["NeuronUpdate"] == "ctr"]
+        elif "activacc" in row: 
+            pruning_df = pruning_df[pruning_df["NeuronUpdate"] == "activacc"]
+        elif "act" in row:
+            pruning_df = pruning_df[pruning_df["NeuronUpdate"] == "act"]
+        
+        if "neurwts" in row:
+            pruning_df = pruning_df[pruning_df["PruningType"] == "neurwts"]
+        elif "neuron" in row:
+            pruning_df = pruning_df[pruning_df["PruningType"] == "neuron"]
+            
+        if "PrunePct_80" in row:
+            pruning_df = pruning_df[pruning_df["PrunePct"] == 80]
+        elif "PrunePct_85" in row:
+            pruning_df = pruning_df[pruning_df["PrunePct"] == 85]
+        elif "PrunePct_90" in row:
+            pruning_df = pruning_df[pruning_df["PrunePct"] == 90]
+            
+        if "NumPruning_1_" in row:
+            pruning_df = pruning_df[pruning_df["NumPruning"] == 1]
+        elif "NumPruning_5_" in row:
+            pruning_df = pruning_df[pruning_df["NumPruning"] == 5]
+        elif "NumPruning_10_" in row:
+            pruning_df = pruning_df[pruning_df["NumPruning"] == 10]
+        
+        if "ResetNeuron" in row:
+            pruning_df = pruning_df[pruning_df["ResetNeuron"] == "Yes"]
+        else:
+            pruning_df = pruning_df[pruning_df["ResetNeuron"] == "No"]
+            
+        return pruning_df["Pct Pruning"]
+            
     def get_hue_name(self, row, filter_lst, flags):
         name = ""
         
         flag_lst = flags["neuron_update"]
         check = any(item in  flag_lst for item in filter_lst)
         if not check:
-            if "ctr" in flag_lst and "ctr" in row:
-                name += " Counter "
-            elif "activacc" in flag_lst and "activacc" in row:
-                name += " Activation Accuracy "
-            elif "acc" in flag_lst and "acc" in row:
-                name += " Accuracy "
+            if "ctr_" in flag_lst and "ctr_" in row:
+                name += "Counter,"
+            elif "activacc_" in flag_lst and "activacc_" in row:
+                name += "Activation Accuracy,"
+            elif "act_" in flag_lst and "act_" in row:
+                name += "Activation,"
         
         flag_lst = flags["prune_type"]
         check = any(item in flag_lst for item in filter_lst)
         if not check:
             if "neurwts" in flag_lst and "neurwts" in row:
-                name += " Neuron Wts "
+                name += "Neuron Wts,"
             elif "neuron" in flag_lst and "neuron" in row:
-                name += " Neuron "
-            
+                name += "Neuron,"
+            actual_pruning = self.__get_true_pruning(row)
+            name += str(round(actual_pruning.to_numpy()[0],2)) + "%,"
         
         flag_lst = flags["prune_pct"]
         check = any(item in  flag_lst for item in filter_lst)
         if not check:
             if "PrunePct_80" in flag_lst and "PrunePct_80" in row:
-                name += " Pct:80 "
+                name += "80%," 
             elif "PrunePct_85" in flag_lst and "PrunePct_85" in row:
-                name += " Pct:85 "
+                name += "85%,"
             elif "PrunePct_90" in flag_lst and "PrunePct_90" in row:
-                name += " Pct:90 "
-        
+                name += "90%,"
+            actual_pruning = self.__get_true_pruning(row)
+            name += str(round(actual_pruning.to_numpy()[0],2)) + "%,"
+            
         flag_lst = flags["num_pruning"]
         check = any(item in  flag_lst for item in filter_lst)
         if not check:
             if "NumPruning_1_" in flag_lst and "NumPruning_1_" in row:
-                name += " Pruning:1 "
+                name += "1,"
             elif "NumPruning_5_" in flag_lst and "NumPruning_5_" in row:
-                name += " Pruning:5 "
+                name += "5,"
             elif "NumPruning_10_" in flag_lst and "NumPruning_10_" in row:
-                name += " Pruning:10 "
-        
-        return name
+                name += "10,"
+            
+            
+        return name[0:-1]
     
     def __get_hue_names(self, data, filter_lst, flags):
         
@@ -402,7 +421,125 @@ class Plots():
         legend_title = self.__get_legend_title(filter_lst,flags)
         #hue_name = hue_name.apply(lambda label: name if n_update in label && p_type in label and p_pct in label and n_pruing in label)
         return (hue_names,legend_title)
-                       
+    
+    def __Plot(self, run_type, plot_type, title, filter_lst, exclude_lst, flags):
+        data = self.__GetData(run_type)
+        data = self.__FilterData(data,"tag", plot_type)
+        filter_data = data
+        for fil in filter_lst:
+            filter_data = self.__FilterData(filter_data,"run", fil)
+        
+        for exc in exclude_lst:
+            filter_data = self.__ExcludeData(filter_data,"run", exc)
+            
+        hue_names, legend_title = self.__get_hue_names(filter_data, filter_lst, 
+                                                       flags)
+        
+        self.__PlotData(filter_data, hue_names, title, 
+                        run_type, plot_type, legend_title)
+
+    def PlotIntervalPruning(self, prune_dir):
+        # , "activacc_","act_"
+        neuron_update = ["ctr_"]
+        prune_type = ["neurwts","neuron"]
+        # ,"PrunePct_90"
+        prune_pct = ["PrunePct_80","PrunePct_85"]
+        # "NumPruning_1_"
+        num_pruning = ["NumPruning_10_","NumPruning_5_"]
+        
+        flags = {}
+        flags["neuron_update"] = neuron_update
+        flags["prune_type"] =prune_type
+        flags["prune_pct"] = prune_pct
+        flags["num_pruning"] = num_pruning
+        
+        exclude_lst = ["ResetNeuron"]
+        exclude_lst.append("NumPruning_1_")
+        #"""
+        for p_pct in prune_pct:
+            #for n_pruning in num_pruning:
+            for n_update in neuron_update:
+                title = "Neuron Update"
+                #filter_lst = [p_pct,n_pruning,n_update]
+                filter_lst = [p_pct,n_update]
+                
+                run_type = "train"
+                plot_type = "accuracy"
+                self.__Plot(run_type, plot_type, title, 
+                            filter_lst, exclude_lst, flags)
+                file_name = self.__get_file_name(prune_dir, run_type, 
+                                                 plot_type, filter_lst)
+                self.__SavePlot(file_name)
+                
+                plot_type = "loss"
+                self.__Plot(run_type, plot_type, title, 
+                            filter_lst, exclude_lst, flags)
+                file_name = self.__get_file_name(prune_dir, run_type, 
+                                                 plot_type, filter_lst)
+                self.__SavePlot(file_name)
+                
+                run_type = "validation"
+                plot_type = "accuracy"
+                self.__Plot(run_type, plot_type, title, 
+                            filter_lst, exclude_lst, flags)
+                file_name = self.__get_file_name(prune_dir, run_type, 
+                                                 plot_type, filter_lst)
+                self.__SavePlot(file_name)
+                
+                plot_type = "loss"
+                self.__Plot(run_type, plot_type, title, 
+                            filter_lst, exclude_lst, flags)
+                file_name = self.__get_file_name(prune_dir, run_type, 
+                                                 plot_type, filter_lst)
+                self.__SavePlot(file_name)
+            
+        #"""     
+        #exclude_lst.append("NumPruning_1_")
+        exclude_lst.append("PrunePct_90")
+        
+        for n_update in neuron_update:
+            for p_type in prune_type:
+                title = "Neuron Update"
+                filter_lst = [n_update, p_type]
+                
+                run_type = "train"
+                plot_type = "accuracy"
+                self.__Plot(run_type, plot_type, title, 
+                            filter_lst, exclude_lst, flags)
+                file_name = self.__get_file_name(prune_dir, run_type, 
+                                                 plot_type, filter_lst)
+                self.__SavePlot(file_name)
+                
+                #plot_type = "loss"
+                #self.__Plot(run_type, plot_type, title, 
+                #            filter_lst, exclude_lst, flags)
+                #file_name = self.__get_file_name(prune_dir, run_type, 
+                #                                 plot_type, filter_lst)
+                #self.__SavePlot(file_name)
+        
+                run_type = "validation"
+                plot_type = "accuracy"
+                self.__Plot(run_type, plot_type, title, 
+                            filter_lst, exclude_lst, flags)
+                file_name = self.__get_file_name(prune_dir, run_type, 
+                                                 plot_type, filter_lst)
+                self.__SavePlot(file_name)
+                
+                #plot_type = "loss"
+                #self.__Plot(run_type, plot_type, title, 
+                #            filter_lst, exclude_lst, flags)
+                #file_name = self.__get_file_name(prune_dir, run_type, 
+                #                                 plot_type, filter_lst)
+                #self.__SavePlot(file_name)
+             
+        
+        #"""
+        run_type = "train"
+        self.__CalculateResetNeuronLoss(run_type, prune_dir)
+        run_type = "validation"
+        self.__CalculateResetNeuronLoss(run_type, prune_dir)
+        #"""
+                   
     def PlotOptimal(self, prune_dir):
         
         epoch_interval = ["EpochInterval_2", "EpochInterval_10",
@@ -583,22 +720,48 @@ class Plots():
     def __CalculateResetNeuronLoss(self, run_type, prune_dir):
         data = self.__GetData(run_type)
         data = self.__FilterData(data,"tag","loss")
+        mean_loss = data.groupby("run", as_index=False).agg({"value": "mean"})
         min_loss = data.groupby("run", as_index=False).agg({"value": "min"})
-        opt_data = self.__FilterData(min_loss,"run","optimal_")
-        rn_loss = self.__FilterData(opt_data,"run","ResetNeuron_")
-        no_rn_loss = self.__ExcludeData(opt_data,"run","ResetNeuron_")
-        min_val_loss = pd.concat([rn_loss, no_rn_loss])
-        run = min_val_loss.run.apply(lambda label: label.split("/")[0])
-        run = run.apply(lambda label: "Reset Enabled" 
-                        if label.split("_")[10] == "ResetNeuron" else "Reset Disabled" )
-        std_loss = self.__FilterData(min_loss,"run","standard_")
-        std_run = std_loss.run.apply(lambda label: "Standard")
-        min_val_loss = pd.concat([std_loss, min_val_loss])
+        max_loss = data.groupby("run", as_index=False).agg({"value": "max"})
+        
+        #opt_data = self.__FilterData(min_loss,"run","optimal_")
+        mean_rn_loss = self.__FilterData(mean_loss,"run","ResetNeuron_")
+        mean_no_rn_loss = self.__ExcludeData(mean_loss,"run","ResetNeuron_")
+        min_rn_loss = self.__FilterData(min_loss,"run","ResetNeuron_")
+        min_no_rn_loss = self.__ExcludeData(min_loss,"run","ResetNeuron_")
+        max_rn_loss = self.__FilterData(max_loss,"run","ResetNeuron_")
+        max_no_rn_loss = self.__ExcludeData(max_loss,"run","ResetNeuron_")
+        
+        mean_val_loss = pd.concat([mean_rn_loss, mean_no_rn_loss])
+        min_val_loss = pd.concat([min_rn_loss, min_no_rn_loss])
+        max_val_loss = pd.concat([max_rn_loss, max_no_rn_loss])
+        
+        mean_run = mean_val_loss.run.apply(lambda label: label.split("/")[0])
+        min_run = min_val_loss.run.apply(lambda label: label.split("/")[0])
+        max_run = max_val_loss.run.apply(lambda label: label.split("/")[0])
+        
+        mean_run = mean_run.apply(lambda label: "Reset Enabled" 
+                        if "ResetNeuron" in label  else "Reset Disabled" )
+        min_run = min_run.apply(lambda label: "Reset Enabled" 
+                        if "ResetNeuron" in label  else "Reset Disabled" )
+        max_run = max_run.apply(lambda label: "Reset Enabled" 
+                        if "ResetNeuron" in label  else "Reset Disabled" )
+        
+        #std_loss = self.__FilterData(min_loss,"run","standard_")
+        #std_run = std_loss.run.apply(lambda label: "Standard")
+        #min_val_loss = pd.concat([std_loss, min_val_loss])
         #p_std_vs_rn = stats.ttest_ind(std_loss["value"], rn_loss["value"]) 
-        run = pd.concat([std_run,run])
-        min_val_loss['x'] = run
+        #run = pd.concat([std_run,run])
+        mean_val_loss['x'] = mean_run
+        min_val_loss['x'] = min_run
+        max_val_loss['x'] = max_run
+        
+        self.__GeneratePlots(mean_val_loss)
+        self.__SavePlot(prune_dir + "/" + run_type + "_mean_loss_ResetNeuron.pdf")
         self.__GeneratePlots(min_val_loss)
-        self.__SavePlot(prune_dir + "/" + run_type + "_loss_ResetNeuron.pdf")
+        self.__SavePlot(prune_dir + "/" + run_type + "_min_loss_ResetNeuron.pdf")
+        self.__GeneratePlots(max_val_loss)
+        self.__SavePlot(prune_dir + "/" + run_type + "_max_loss_ResetNeuron.pdf")
         
     def __GeneratePlots(self,min_val_loss):
         bp = sns.boxplot(data=min_val_loss, y="value", x=min_val_loss.x,

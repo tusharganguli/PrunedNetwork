@@ -36,13 +36,20 @@ plots = gp.Plots(experiment_id)
 #plots.AnalyzeLoss(prune_dir)
 plots.ConvertToEps(prune_dir)
 """
-
+    
 def generate_tb_data():
-    prune_dir = "cip/tb_dev_results"
     experiment_id = "Qf3qKjq6Rxu9iG5LLUOnWQ"
-    #plots = gp.Plots(experiment_id)
-    #plots.PlotIntervalPruning(prune_dir)
-    gp.Plots.ConvertToEps(prune_dir)
+    tbdev_dir = "cip/tb_dev_data"
+    file_name="IntervalPruning"
+    #gp.Plots.download_and_save(experiment_id, tbdev_dir, file_name)
+    
+    
+    tbdev_plot_dir = "cip/tb_dev_results"
+    tbdev_file_name = tbdev_dir + "/" + file_name + ".xls"
+    prune_filename = "cip/" + prune_dir + "/prunedetails.xlsx"
+    plots = gp.Plots(tbdev_file_name, prune_filename)
+    plots.PlotIntervalPruning(tbdev_plot_dir)
+    gp.Plots.ConvertToEps(tbdev_plot_dir)
     
 #generate_tb_data()
 
@@ -54,11 +61,14 @@ run_cnt = 3
 
 def train_standard():
     log_dir = "standard"
-    model_run = mr.ModelRun(db,log_dir, tensorboard_dir, 
-                            prune_dir, model_dir,
-                            plot_dir)
+    model_run = mr.ModelRun(db)
     
-    model_run.set_log_filename("standard")
+    log_handler = utils.LogHandler(log_dir, tensorboard_dir, prune_dir, 
+                                   model_dir, plot_dir)
+    
+    model_name = "standard"
+    model_name = utils.add_time_to_filepath(model_name)
+    log_handler.set_log_filename(model_name)
     
     #neuron_lst = [300,300,300]
     #model = model_run.create_full_dense_model("standard",neuron_lst)
@@ -66,10 +76,15 @@ def train_standard():
     model_run.evaluate_standard(run_type="standard",
                                 num_runs=run_cnt, 
                                 final_acc = f_acc,
-                                es_delta = 0.1)
-    model_run.save_log()
-    model_name = model_run.get_modelname()
-    model_run.save_model(model_name)
+                                es_delta = 0.1,
+                                log_handler = log_handler)
+    
+    std_model_name = log_handler.get_modelname()
+    model_run.save_model(std_model_name)
+    
+    prune_filename = utils.add_time_to_filepath("prune_details")
+    log_handler.set_log_filename(prune_filename)
+    log_handler.write_to_file(prune_filename)
     del model_run
 
 #train_standard()
@@ -224,16 +239,16 @@ def cip_pruning():
 #cip_pruning()
 
 def cip_test():
-    log_dir = "cip"
+    log_dir = "cip_test"
     model_run = mr.ModelRun(db)
     log_handler = utils.LogHandler(log_dir, tensorboard_dir, prune_dir, 
                                model_dir, plot_dir)
     
     
     prune_start_at = 80/100
-    n_pruning = 1
+    n_pruning = 10
     f_acc = 98/100
-    prune_pct = 80
+    prune_pct = 85
     r_neuron = False
     delta = 0.1
     
@@ -305,45 +320,43 @@ def prune_trained(trained_model_dir = model_dir + "/standard"):
     r_neuron = False
     
     # neuron_update: ctr,act,act_acc
-    #n_update = "act_acc"
+    n_update = "ctr"
     # pruning_type: neuron, neuron_wts
-    #p_type = "neuron_wts"
+    p_type = "neuron_wts"
     
-    neuron_update_list = ["ctr","act","act_acc"]
-    prune_type_list = ["neuron","neuron_wts"]
+    #neuron_update_list = ["ctr","act","act_acc"]
+    #prune_type_list = ["neuron","neuron_wts"]
     
     model_run = mr.ModelRun(db,log_dir, tensorboard_dir, 
                             prune_dir, model_dir,
                             plot_dir)
     
     
-    for n_update in neuron_update_list:
-        for p_type in prune_type_list:
-            model_name = r_type
-            model_name += "_NumPruning_" + str(n_pruning)
-            model_name += "_PruneInterval_" + str(p_int)
-            model_name += "_FinalAcc_" + str(f_acc)
-            model_name += "_NeuronUpdate_" + n_update
-            model_name += "_PruningType_" + p_type
-            if r_neuron == True:
-                model_name += "_ResetNeuron"
-            
-            model_run.set_log_filename(model_name)
-            
-            trained_model = keras.models.load_model(trained_model_dir)
-            model_run.prune_trained_model(run_type=r_type,
-                                          trained_model=trained_model,
-                                          num_pruning=n_pruning,
-                                          pruning_interval=p_int,
-                                          final_acc=f_acc,
-                                          prune_pct=p_pct,
-                                          neuron_update = n_update,
-                                          prune_type = p_type,
-                                          reset_neuron = r_neuron)
-            
-            prune_model_name = model_run.get_modelname()
-            model_run.save_model(prune_model_name)
-            del trained_model
+    model_name = r_type
+    model_name += "_NumPruning_" + str(n_pruning)
+    model_name += "_PruneInterval_" + str(p_int)
+    model_name += "_FinalAcc_" + str(f_acc)
+    model_name += "_NeuronUpdate_" + n_update
+    model_name += "_PruningType_" + p_type
+    if r_neuron == True:
+        model_name += "_ResetNeuron"
+    
+    model_run.set_log_filename(model_name)
+    
+    trained_model = keras.models.load_model(trained_model_dir)
+    model_run.prune_trained_model(run_type=r_type,
+                                  trained_model=trained_model,
+                                  num_pruning=n_pruning,
+                                  pruning_interval=p_int,
+                                  final_acc=f_acc,
+                                  prune_pct=p_pct,
+                                  neuron_update = n_update,
+                                  prune_type = p_type,
+                                  reset_neuron = r_neuron)
+    
+    prune_model_name = model_run.get_modelname()
+    model_run.save_model(prune_model_name)
+    del trained_model
 
 trained_model_dir = model_dir + "/standard"    
 #prune_trained( trained_model_dir )

@@ -73,39 +73,40 @@ class ModelRun():
     def set_log_handler(self, log_handler):
         self.lh = log_handler
         
-    def evaluate_standard(self, run_type, num_runs, final_acc, es_delta):
+    def evaluate_standard(self, run_type, 
+                          num_runs, final_acc, 
+                          es_delta, log_handler):
         
-        for runs in range(num_runs):   
-            tf.keras.backend.clear_session()
-            model = self.create_model(run_type)
-            
-            stop_cb = pc.StopCallback(final_acc)
-            
-            tb_log_filename = self.lh.get_tensorboard_dir()
-            tensorboard_cb = keras.callbacks.TensorBoard(tb_log_filename)
-            model.compile(optimizer=self.optimizer, loss=self.loss, 
-                          metrics=[self.acc_metrics,self.top1_metrics, 
-                                   self.top5_metrics])
-            
-            es_cb = pc.EarlyStoppingCallback(delta=es_delta, 
-                                             verbose=1)
-            history = model.fit(self.train_img, self.train_labels, 
-                                epochs=self.epochs,
-                                validation_data=(self.valid_img,self.valid_labels),
-                                callbacks=[es_cb, stop_cb,tensorboard_cb])
-            
-            self.model = model
-            
-            num_epochs = stop_cb.get_num_epochs()
-            eval_result = model.evaluate(self.test_img,self.test_labels)
-            
-            (total_trainable_wts,
-            total_pruned_wts,prune_pct_achieved) = self.__generate_model_summary(model)
-            prune_pct_achieved = prune_pct_achieved.numpy()
-            del model
-            self.lh.log_data(run_type, history, eval_result, 
-                             num_epochs, prune_pct_achieved )
-    
+        
+        tf.keras.backend.clear_session()
+        model = self.create_model(run_type)
+        
+        stop_cb = pc.StopCallback(final_acc)
+        es_cb = pc.EarlyStoppingCallback(delta=es_delta, 
+                                         verbose=1)
+        
+        tb_log_filename = log_handler.get_tensorboard_dir()
+        tensorboard_cb = keras.callbacks.TensorBoard(tb_log_filename)
+        
+        model.compile(optimizer=self.optimizer, loss=self.loss, 
+                      metrics=[self.acc_metrics,self.top1_metrics, 
+                               self.top5_metrics])
+        
+        
+        history = model.fit(self.train_img, self.train_labels, 
+                            epochs=self.epochs,
+                            validation_data=(self.valid_img,self.valid_labels),
+                            callbacks=[es_cb, stop_cb,tensorboard_cb])
+        
+        self.model = model
+        
+        num_epochs = stop_cb.get_num_epochs()
+        eval_result = model.evaluate(self.test_img,self.test_labels)
+        
+        del model
+        log_handler.log_data(run_type, history, eval_result, 
+                         num_epochs )
+
     def evaluate_cnn(self, run_type, 
                      prune_start_at_acc,
                      num_pruning,
