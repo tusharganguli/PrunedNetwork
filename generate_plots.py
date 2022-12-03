@@ -17,7 +17,7 @@ import os
 import utils
 
 def matrix_heatmap(std_dir, freq_model_dir, 
-                   tf_model_dir, dir_name):
+                   tf_model_dir, dir_name, prefix ):
     
     std_model = keras.models.load_model(std_dir)    
     freq_model = keras.models.load_model(freq_model_dir)    
@@ -72,7 +72,7 @@ def matrix_heatmap(std_dir, freq_model_dir,
         #axs[1,1].set_title('Difference')
         #im4 = axs[1,1].imshow(c_bool, cmap='hot', interpolation='nearest')
         
-        filename = dir_name + "/" + layer_name + ".png"
+        filename = dir_name + "/" + prefix + "_" + layer_name + ".png"
         plt.savefig(filename, dpi=600)
         plt.show()
         

@@ -299,7 +299,7 @@ def get_exp_decay_range(samples, a=1, b=0.2):
     vals = (vals/np.sum(vals))*100
     return vals
 
-def add_time_to_filepath(filename=""):
+def add_time_to_filename(filename=""):
     import time
     run_id = time.strftime("_%Y_%m_%d-%H_%M_%S")
     run_id = filename+run_id
@@ -467,14 +467,14 @@ def generate_low_rank_matrix(A, k):
     #tmp = np.dot(u, np.dot(S, vt))
     return Ak        
 
-def generate_matrix_norms(std_model, pruned_model, tf_pruned_model):
+def generate_matrix_norms(std_model, pruned_model):
     num_layers = len(std_model.layers)
     df = pd.DataFrame(columns=["Spectral", "Frobenius","Nuclear"])
     
     for layer_id in range(0,num_layers):
         std_layer = std_model.layers[layer_id]
         pruned_layer = pruned_model.layers[layer_id]
-        tf_pruned_layer = tf_pruned_model.layers[layer_id]
+        #tf_pruned_layer = tf_pruned_model.layers[layer_id]
         
         # checking only one of the models for dense layer is sufficient
         if not isinstance(std_layer,keras.layers.Dense):
@@ -482,11 +482,11 @@ def generate_matrix_norms(std_model, pruned_model, tf_pruned_model):
         
         std_wts = std_layer.get_weights()[0]
         pruned_wts = pruned_layer.get_weights()[0]
-        tf_pruned_wts = tf_pruned_layer.get_weights()[0]
+        #tf_pruned_wts = tf_pruned_layer.get_weights()[0]
         
-        pruned_matrix_rank = np.linalg.matrix_rank(pruned_wts)    
-        Ak = generate_low_rank_matrix(std_wts,pruned_matrix_rank)
-        Tk = generate_low_rank_matrix(tf_pruned_wts,pruned_matrix_rank)
+        #pruned_matrix_rank = np.linalg.matrix_rank(pruned_wts)    
+        #Ak = generate_low_rank_matrix(std_wts,pruned_matrix_rank)
+        #Tk = generate_low_rank_matrix(tf_pruned_wts,pruned_matrix_rank)
         
         data = pd.DataFrame([["" ,"" ,"" ]],columns=list(df), 
                             index=["Layer"+str(layer_id)])
@@ -495,41 +495,41 @@ def generate_matrix_norms(std_model, pruned_model, tf_pruned_model):
         
         
         spec_A, frob_A, nuc_A = __compute_norm(std_wts)
-        spec_Ak, frob_Ak, nuc_Ak = __compute_norm(Ak)
+        #spec_Ak, frob_Ak, nuc_Ak = __compute_norm(Ak)
         spec_B, frob_B, nuc_B = __compute_norm(pruned_wts)
-        spec_T, frob_T, nuc_T = __compute_norm(tf_pruned_wts)
-        spec_Tk, frob_Tk, nuc_Tk = __compute_norm(Tk)
+        #spec_T, frob_T, nuc_T = __compute_norm(tf_pruned_wts)
+        #spec_Tk, frob_Tk, nuc_Tk = __compute_norm(Tk)
         
         data = pd.DataFrame([[spec_A,frob_A,nuc_A], 
-                             [spec_Ak,frob_Ak,nuc_Ak],
+                             #[spec_Ak,frob_Ak,nuc_Ak],
                              [spec_B,frob_B,nuc_B],
-                             [spec_T, frob_T, nuc_T],
-                             [spec_Tk, frob_Tk, nuc_Tk]], 
+                             #[spec_T, frob_T, nuc_T],
+                             #[spec_Tk, frob_Tk, nuc_Tk]
+                             ], 
                             columns=list(df), 
-                            index=["||Std||", "||Std_k||","||Freq||", 
-                                   "||Mag||", "||Mag_k||"])
+                            index=["||Std||", "||Pruned||"])
         
-        #df = df.append(data)
+        df = df.append(data)
         del data
-        
+        """
         spec_A_Ak, frob_A_Ak, nuc_A_Ak = __compute_diff_norm(std_wts, Ak)
         spec_A_B, frob_A_B, nuc_A_B = __compute_diff_norm(std_wts, pruned_wts)
         #spec_Ak_B, frob_Ak_B, nuc_Ak_B = __compute_diff_norm(Ak, pruned_wts)
         
-        spec_A_T, frob_A_T, nuc_A_T = __compute_diff_norm(std_wts, tf_pruned_wts)
+        #spec_A_T, frob_A_T, nuc_A_T = __compute_diff_norm(std_wts, tf_pruned_wts)
         #spec_Ak_Tf, frob_Ak_Tf, nuc_Ak_Tf = __compute_diff_norm(Ak, tf_pruned_wts)
-        spec_A_Tk, frob_A_Tk, nuc_A_Tk = __compute_diff_norm(std_wts, Tk)
+        #spec_A_Tk, frob_A_Tk, nuc_A_Tk = __compute_diff_norm(std_wts, Tk)
         
-        data = pd.DataFrame([[spec_A_Ak,frob_A_Ak,nuc_A_Ak], 
-                             [spec_A_B,frob_A_B,nuc_A_B],
-                             #[spec_Ak_B,frob_Ak_B,nuc_Ak_B],
-                             [spec_A_T, frob_A_T, nuc_A_T],
-                             #[spec_Ak_Tf, frob_Ak_Tf, nuc_Ak_Tf],
-                             [spec_A_Tk, frob_A_Tk, nuc_A_Tk],
-                             ], 
-                            columns=list(df), 
-                            index=["||Std||-||Std_k||", "||Std||-||Freq||",
-                                   "||Std||-||Mag||","||Std||-||Mag_k||"])
+        #data = pd.DataFrame([[spec_A_Ak,frob_A_Ak,nuc_A_Ak], 
+        #                     [spec_A_B,frob_A_B,nuc_A_B],
+        #                     #[spec_Ak_B,frob_Ak_B,nuc_Ak_B],
+        #                     [spec_A_T, frob_A_T, nuc_A_T],
+        #                     #[spec_Ak_Tf, frob_Ak_Tf, nuc_Ak_Tf],
+        #                     [spec_A_Tk, frob_A_Tk, nuc_A_Tk],
+        #                     ], 
+        #                    columns=list(df), 
+        #                    index=["||Std||-||Std_k||", "||Std||-||Freq||",
+        #                           "||Std||-||Mag||","||Std||-||Mag_k||"])
         #df = df.append(data)
         del data
         
@@ -537,7 +537,7 @@ def generate_matrix_norms(std_model, pruned_model, tf_pruned_model):
         spec_A_B,frob_A_B,nuc_A_B = __compute_norm(std_wts-pruned_wts)
         #spec_Ak_B,frob_Ak_B,nuc_Ak_B = __compute_norm(Ak-pruned_wts)
         
-        spec_A_T,frob_A_T,nuc_A_T = __compute_norm(std_wts-tf_pruned_wts)
+        #spec_A_T,frob_A_T,nuc_A_T = __compute_norm(std_wts-tf_pruned_wts)
         #spec_Ak_Tf,frob_Ak_Tf,nuc_Ak_Tf = __compute_norm(Ak-tf_pruned_wts)
         #spec_A_Tk,frob_A_Tk,nuc_A_Tk = __compute_norm(std_wts-Tk)
         
@@ -551,9 +551,9 @@ def generate_matrix_norms(std_model, pruned_model, tf_pruned_model):
                             columns=list(df), 
                             index=["||Std-Freq||", 
                                    "||Std-Mag||"])
-        df = df.append(data)
+        #df = df.append(data)
         del data
-        
+        """
     return df
 
 

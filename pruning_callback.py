@@ -164,8 +164,11 @@ class CIPCallback(BasePruneCallback):
     def on_train_begin(self, logs=None):
         self.pn.enable_neuron_update(self.neuron_update)
         
-        self.prune_acc_interval = \
-            (self.final_acc - self.prune_start_at_acc)/self.num_pruning
+        if self.num_pruning == 0:
+            self.prune_acc_interval = 0
+        else:
+            self.prune_acc_interval = \
+                (self.final_acc - self.prune_start_at_acc)/self.num_pruning
         self.prune_pct_lst = utils.get_exp_decay_range(self.num_pruning)
         self.prune_pct_lst = self.prune_pct_lst*(self.prune_pct/100)
     
@@ -203,11 +206,13 @@ class CIPCallback(BasePruneCallback):
             
     def on_epoch_end(self, epoch, logs=None):
         super(CIPCallback, self).on_epoch_end(epoch, logs)
+        accuracy = logs["accuracy"]
         
         if self.pruning_done == True:
+            if accuracy >= self.final_acc:
+                self.model.stop_training = True
             return
         
-        accuracy = logs["accuracy"]
         if accuracy < self.prune_start_at_acc:
             return
         
@@ -220,36 +225,57 @@ class CIPCallback(BasePruneCallback):
             #self.lh.write_svd()
 
         self.prune_start_at_acc += self.prune_acc_interval
-           
+
+class RATCallback(BasePruneCallback):
+    def __init__(self, model, final_acc, log_handler):    
+        prune_pct = 0
+        reset_neuron = False
+        
+        super(PruneTrainedCallback, self).__init__(model, prune_pct, 
+                                                   final_acc, reset_neuron,
+                                                   log_handler)
+    def on_train_begin(self, logs=None):
+        """
+        We want to preserve the weights which have been initialized to 0. 
+
+        """
+        self.model.disable_neuron_update()
+        self.model.preserve_pruning()
+       
+       
+       
 class PruneTrainedCallback(BasePruneCallback):
-    def __init__(self, model, num_pruning, pruning_interval,
-                 prune_pct, final_acc, neuron_update, prune_type, 
+    def __init__(self, model, num_pruning, final_acc, 
+                 prune_pct, neuron_update, prune_type,
                  reset_neuron, log_handler):
         super(PruneTrainedCallback, self).__init__(model, prune_pct, 
-                                                    final_acc, reset_neuron,
-                                                    log_handler)
+                                                   final_acc, reset_neuron,
+                                                   log_handler)
         self.num_pruning = num_pruning
-        self.pruning_interval = pruning_interval
-        self.interval_cnt = self.pruning_interval
+        self.prune_acc_interval = 0
+        self.prune_pct_lst = []
+        self.prune_pct_idx = 0
         self.neuron_update = neuron_update
         self.prune_type = prune_type
         self.pruning_cnt = 0
-        # amount of pruning to be carried out in 1 cycle of pruning
-        self.interval_prune_pct = self.prune_pct/self.num_pruning
         self.plot_dir = log_handler.get_plot_dir()
         
     def __del__(self):
         del self.num_pruning
-        del self.pruning_interval
-        del self.interval_cnt
+        del self.prune_acc_interval
+        del self.prune_pct_lst
+        del self.prune_pct_idx
         del self.neuron_update
         del self.prune_type
         del self.pruning_cnt
-        del self.interval_prune_pct
         
         
     def on_train_begin(self, logs=None):
         self.pn.enable_neuron_update(self.neuron_update)
+        self.prune_acc_interval = \
+            (self.final_acc - self.prune_start_at_acc)/self.num_pruning
+        self.prune_pct_lst = utils.get_exp_decay_range(self.num_pruning)
+        self.prune_pct_lst = self.prune_pct_lst*(self.prune_pct/100)
     
     def on_train_end(self,logs=None):
         svd_plots = gp.SVDPlots()
@@ -261,7 +287,8 @@ class PruneTrainedCallback(BasePruneCallback):
                             final_sv, final_acc, self.plot_dir)
         
         svd_plots.ConvertToEps(self.plot_dir)
-    
+        self.lh.reset_svd()
+        
     def __prune_and_log(self, step, accuracy):
         num_zeros = self.pn.get_zeros()
         tf.print("zeros before pruning:" + str(num_zeros))
