@@ -18,6 +18,7 @@ import utils
 
 db = keras.datasets.fashion_mnist
 f_acc = 0.98
+root_log_dir = "../LogDir"
 model_dir = "model"
 tensorboard_dir = "tb_results"
 prune_dir = "prune_details"
@@ -239,7 +240,7 @@ def cip_pruning():
 #cip_pruning()
 
 def cip_test():
-    log_dir = "cip_test"
+    log_dir = "activation_test"
     model_run = mr.ModelRun(db)
     log_handler = utils.LogHandler(log_dir, tensorboard_dir, prune_dir, 
                                model_dir, plot_dir)
@@ -248,7 +249,7 @@ def cip_test():
     prune_start_at = 80/100
     n_pruning = 10
     f_acc = 98/100
-    prune_pct = 85
+    prune_pct = 80
     r_neuron = False
     delta = 0.1
     
@@ -283,12 +284,16 @@ def cip_test():
                            early_stopping_delta=delta,
                            log_handler = log_handler)
     
+    log_handler.log_single_run(model_name)
+    prune_model_name = log_handler.get_modelname()
+    model_run.save_model(prune_model_name)
+    
     prune_filename = utils.add_time_to_filename("prune_details")
     log_handler.set_log_filename(prune_filename)
     log_handler.write_to_file(prune_filename)
     del model_run
 
-#cip_test()
+cip_test()
 
 def prune_standard_tf(trained_model_dir,
                       tf_pruned_model_dir):
@@ -305,8 +310,8 @@ def prune_standard_tf(trained_model_dir,
     filename = tf_pruned_model_dir + "/tf_prune_history.xlsx"
     tf_prune.log(history, test_result, filename)
 
-#std_dir = "./standard/model/standard_2022_08_15-23_23_02"
-#tf_pruned_model_dir = "./tf_prune_trained"
+#std_dir = root_log_dir + "/standard/model/standard_2022_08_15-23_23_02"
+#tf_pruned_model_dir = root_log_dir + "/tf_std_pruned"
 #prune_standard_tf(std_dir, tf_pruned_model_dir)
 
 
@@ -497,8 +502,8 @@ def rewind_and_train(model_dir_name):
     model_name = log_handler.get_modelname()
     model_run.save_model(model_name)
 
-model_dir_name = "./cip/model/cip_NumPruning_5_PrunePct_80_NeuronUpdate_ctr_PruningType_neuron_wts_EarlyStopping_0.1_2022_08_06-02_55_38"
-rewind_and_train(model_dir_name)
+model_dir_name = root_log_dir + "/cip/model/cip_NumPruning_5_PrunePct_80_NeuronUpdate_ctr_PruningType_neuron_wts_EarlyStopping_0.1_2022_08_06-02_55_38"
+#rewind_and_train(model_dir_name)
 
 def get_modelname(m_dir):
     model_name = m_dir.split("/")[-1]

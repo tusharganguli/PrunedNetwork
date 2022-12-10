@@ -26,8 +26,9 @@ class LogHandler:
     #                             ])
     
     def __init__(self, log_dir, tensorboard_dir, prune_dir, 
-                 model_dir, plot_dir):    
-        log_dir = log_dir + "/" 
+                 model_dir, plot_dir): 
+        logdir_name = "LogDir"
+        log_dir = "../" + logdir_name + "/" + log_dir + "/" 
         log_dir = os.path.join(os.curdir,log_dir)
         if not os.path.exists(log_dir):
             os.makedirs(log_dir)
@@ -178,7 +179,8 @@ class LogHandler:
                     ]
         
         df2 = pd.DataFrame([log_data], columns=list(self.df))
-        self.df = self.df.append(df2,ignore_index = True)
+        #self.df = self.df.append(df2,ignore_index = True)
+        self.df = pd.concat([self.df,df2], ignore_index=True)
     
     def __generate_avg( self, history_list, evaluate_list):
         
@@ -261,7 +263,8 @@ class LogHandler:
         
         info = [[curr_acc,total_prune_pct]]
         df_info = pd.DataFrame(info, columns=self.svd_plot_info.columns)
-        self.svd_plot_info = self.svd_plot_info.append(df_info)
+        #self.svd_plot_info = self.svd_plot_info.append(df_info)
+        self.svd_plot_info = pd.concat([self.svd_plot_info,df_info])
         #self.svd_plots.PlotRatio(self.svd_df,layer_cnt, curr_acc, 
         #                         self.total_pruning_pct, prune_dir)
 

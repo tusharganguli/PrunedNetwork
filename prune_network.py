@@ -188,6 +188,23 @@ class PruneNetwork:
             all_weights[idx][0] = kernel
             del kernel
             layer_lst[idx].set_weights(all_weights[idx])                      
+    
+    def prune_redundant_wts(self, df_data, df_data_sort, dim_lst):
+        # retieve all neurons with all zero wts
+        df_zero = df_data_sort.loc[df_data_sort["wts"] == 0]
+        # retireve unique columns of j
+        j_values = df_zero["j"].unique()
+        layers = len(dim_lst)
+        
+        for l in range(layers):
+            for j in j_values:
+                incoming_zeros = len(df_zero.loc[(df_zero["j"]==j) & (df_zero["layer"]==l) ].index)
+                if dim_lst[l][0] != incoming_zeros:
+                    continue
+                next_layer = l + 1
+                df_data.loc[(df_data["layer"] == next_layer) & (df_data["i"] == j),"wts"]=0
+        return df_data
+        
     def cip(self, pruning_pct, pruning_type):
         all_weights = []
         layer_lst = []
@@ -195,6 +212,7 @@ class PruneNetwork:
         dim_lst = []
         layer_idx = 0
         total_len = 0
+        total_pruning = 0
         
         for layer in self.model.layers:
             if not isinstance(layer,keras.layers.Dense):
@@ -241,15 +259,22 @@ class PruneNetwork:
         
         start_idx = 0    
         df_data_sort.iloc[start_idx:start_idx+pruning_idx,4] = 0
-        
+
         #self.redistribute_wts(df_data, layer_cnt)
         
         # also check the condition number largest sig val / smallest sig val
         
-        df_data = df_data_sort.append(df_zero_wt, ignore_index=True)
-        del df_data_sort
+        #df_data = df_data_sort.append(df_zero_wt, ignore_index=True)
+        df_data = pd.concat([df_data_sort,df_zero_wt], ignore_index=True)
+        
+        
         
         df_data = df_data.sort_values(["layer","i","j"], ascending=True)
+        df_data_sort = df_data_sort.sort_values(["layer","i","j"], ascending=True)
+        
+        df_data = self.prune_redundant_wts(df_data,df_data_sort, dim_lst)
+        del df_data_sort
+
         
         # retrieve all kernel values from the sorted list
         kernel_wts = df_data["wts"]
@@ -267,7 +292,7 @@ class PruneNetwork:
             start_offset = end_offset
             all_weights[idx][0] = kernel
             del kernel
-            layer_lst[idx].set_weights(all_weights[idx])      
+            layer_lst[idx].set_weights(all_weights[idx])
     
     def redistribute_wts(self, df_data, layer_cnt):
         
@@ -538,7 +563,8 @@ class PruneNetwork:
             #activation_sum = np.add.reduce(activation_data[0])
             self.__update_frequency(idx,activation_data[0],curr_acc)
             idx += 1
-    
+
+    """
     def __update_frequency( self, idx, activation_data,curr_acc):
         
         neuron_inc = 1
@@ -551,18 +577,20 @@ class PruneNetwork:
             elif self.neuron_update_type == "act":
                 neuron_inc = activation_data[step]
                 
-            condition = tf.equal(activation_data[step], 0)
-            res_1 = tf.add(self.neuron[idx],neuron_inc)
-            self.neuron[idx] = tf.where(condition, self.neuron[idx],res_1)
- 
-    #def __update_frequency( self, idx, activation_data):
-        
-        #activation_dim = activation_data.shape
-        #for step in range(0,activation_dim[0]):
             #condition = tf.equal(activation_data[step], 0)
-            #res_1 = tf.add(self.neuron[idx],1)
+            #res_1 = tf.add(self.neuron[idx],neuron_inc)
             #self.neuron[idx] = tf.where(condition, self.neuron[idx],res_1)
-            
+            res_1 = tf.cast(tf.abs(neuron_inc),dtype=tf.float32)
+            self.neuron[idx] = tf.add(self.neuron[idx], res_1)
+    """
+
+    def __update_frequency( self, idx, activation_data,curr_acc):
+        activation_dim = activation_data.shape
+        act_sum = np.sum(np.abs(activation_data),axis=0)
+        act_avg = act_sum/activation_dim[0]
+        self.neuron[idx] = tf.add(self.neuron[idx], act_avg)
+        
+        
     def get_zeros(self):
         wts = self.model.trainable_variables
         num_zeros = 0
