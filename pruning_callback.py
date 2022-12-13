@@ -218,6 +218,9 @@ class CIPCallback(BasePruneCallback):
         
         self.__prune_and_log(epoch,accuracy)
         
+        if self.reset_neuron == True:
+            self.pn.reset_neuron_count()
+        
         #if prune_pct.numpy() >= self.prune_pct:
         if self.num_pruning == self.prune_pct_idx:
             self.pruning_done = True

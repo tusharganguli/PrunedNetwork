@@ -8,18 +8,22 @@ Created on Fri Sep 10 21:27:25 2021
 
 import tensorflow as tf
 from tensorflow import keras
+import utils
 
 class CustomModel(keras.Model):
-    def __init__(self, inputs,outputs):
+    def __init__(self, inputs,outputs, nw_type="ffn"):
         super(CustomModel, self).__init__(inputs,outputs)
         #self.batch_data = []
         self.neuron_update = False
         self.pruning_flag = False
+        self.nw_type = nw_type
         
     def set_prune_network(self,pn):
         self.pn = pn
         
     def train_step(self, data):
+        #start_time = utils.get_time()
+        
         # Unpack the data. Its structure depends on your model and
         # on what you pass to `fit()`.
         x, y = data
@@ -31,7 +35,7 @@ class CustomModel(keras.Model):
             for m in self.metrics:
                 if m.name == "accuracy":
                     curr_acc = m.result()
-            self.pn.update_neuron_frequency(x, curr_acc)
+            self.pn.update_neuron_frequency(x, curr_acc, self.nw_type)
             
         with tf.GradientTape() as tape:
             y_pred = self(x, training=True)  # Forward pass
@@ -53,6 +57,9 @@ class CustomModel(keras.Model):
         
         # Update metrics (includes the metric that tracks the loss)
         self.compiled_metrics.update_state(y, y_pred)
+        
+        #end_time = utils.get_time()
+        #print("\n Time taken:",(end_time-start_time))
         # Return a dict mapping metric names to current value
         return {m.name: m.result() for m in self.metrics}
             

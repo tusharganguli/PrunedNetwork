@@ -312,6 +312,10 @@ def get_timestamp():
     import time
     return time.strftime("_%Y_%m_%d-%H_%M_%S")
 
+def get_time():
+    import time
+    return time.time_ns()
+
 def get_num_layers(model):
     layer_cnt = 0
     for layer in model.layers:

@@ -144,8 +144,7 @@ class ModelRun():
         
         model.compile(optimizer=self.optimizer, 
                       loss=self.loss,
-                      metrics=[self.acc_metrics,self.top1_metrics, 
-                               self.top5_metrics], 
+                      metrics=[self.acc_metrics, self.top1_metrics, self.top5_metrics], 
                       run_eagerly=True)
 
         history = model.fit(self.train_img, 
@@ -153,7 +152,9 @@ class ModelRun():
                             epochs=self.epochs,
                             validation_data=(self.valid_img,self.valid_labels),
                             callbacks=[es_cb, stop_cb, 
-                                       pruning_cb, tensorboard_cb])
+                                      pruning_cb, tensorboard_cb
+                                      ]
+                            )
         
         self.model = model
         
@@ -476,6 +477,30 @@ class ModelRun():
         prune_pct = (pruned_wts/trainable_wts_cnt)*100
         tf.print("Prune percentage:",prune_pct)
         return (trainable_wts,pruned_wts,prune_pct)
+    
+    def create_basic_cnn(self):
+        from functools import partial
+        
+        DefaultConv2D = partial(keras.layers.Conv2D,
+                            kernel_size=3, activation='relu', padding="SAME")
+        
+        input_layer = keras.Input(shape=[28, 28, 1])
+        conv_1 = DefaultConv2D(filters=32, kernel_size=3)(input_layer)
+        max_pool_1 = keras.layers.MaxPooling2D(pool_size=2)(conv_1)
+        conv_2 = DefaultConv2D(filters=64)(max_pool_1)
+        conv_3 = DefaultConv2D(filters=64)(conv_2)
+        max_pool_2 = keras.layers.MaxPooling2D(pool_size=2)(conv_3)
+        flatten = keras.layers.Flatten()(max_pool_2)
+        #dense_1 = keras.layers.Dense(units=128, activation='relu')(flatten)
+        #keras.layers.Dropout(0.5),
+        dense_2 = keras.layers.Dense(units=64, activation='relu')(flatten)
+        #keras.layers.Dropout(0.5),
+        output_layer = keras.layers.Dense(units=10, activation='softmax', 
+                                    name='output')(dense_2)
+        
+        model = cmod.CustomModel(inputs=input_layer,outputs=output_layer, nw_type="cnn")
+        return model
+
 
     def create_cnn(self):
         from functools import partial
@@ -500,12 +525,13 @@ class ModelRun():
         output_layer = keras.layers.Dense(units=10, activation='softmax', 
                                     name='output')(dense_2)
         
-        model = cmod.CustomModel(inputs=input_layer,outputs=output_layer)
+        model = cmod.CustomModel(inputs=input_layer,outputs=output_layer, nw_type="cnn")
         return model
     
     def create_model(self,run_type):
         if run_type == "cnn":
-            return self.create_cnn()
+            return self.create_basic_cnn()
+            #return self.create_cnn()
         
         input_layer = keras.Input(shape=(28,28), name="input")
         flatten = keras.layers.Flatten(name="flatten")(input_layer)

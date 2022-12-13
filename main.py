@@ -118,8 +118,8 @@ def cnn_pruning():
     # pruning_type: neuron, neuron_wts
     #p_type = "neuron"
     
-    neuron_update = "ctr"
-    prune_type = "neuron_wts"
+    neuron_update = "act"
+    prune_type = "neuron"
     reset_neuron = False
     
     model_name = "cnn" 
@@ -160,7 +160,7 @@ def cnn_pruning():
     log_handler.write_to_file(prune_filename)
     del model_run
 
-#cnn_pruning()
+cnn_pruning()
 
 def cip_pruning():
     """
@@ -250,7 +250,7 @@ def cip_test():
     n_pruning = 10
     f_acc = 98/100
     prune_pct = 80
-    r_neuron = False
+    r_neuron = True
     delta = 0.1
     
     # neuron_update: ctr,act,act_acc
@@ -293,7 +293,7 @@ def cip_test():
     log_handler.write_to_file(prune_filename)
     del model_run
 
-cip_test()
+#cip_test()
 
 def prune_standard_tf(trained_model_dir,
                       tf_pruned_model_dir):
