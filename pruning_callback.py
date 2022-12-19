@@ -10,6 +10,7 @@ import tensorflow as tf
 from tensorflow import keras
 from datetime import datetime
 import numpy as np
+import random
 
 import prune_network as pn
 import generate_plots as gp
@@ -47,7 +48,7 @@ class BasePruneCallback(keras.callbacks.Callback):
         return self.num_epochs
 
 class CNNCallback(BasePruneCallback):
-    def __init__(self, model, prune_start_at_acc,
+    def __init__(self, model, train_img, prune_start_at_acc,
                  num_pruning, final_acc, prune_pct, neuron_update,
                  pruning_type, reset_neuron, log_handler ):
         super(CNNCallback, self).__init__(model, prune_pct, 
@@ -55,6 +56,7 @@ class CNNCallback(BasePruneCallback):
                                           log_handler)
         """ Save params in constructor
         """
+        self.train_img = train_img
         self.prune_start_at_acc = prune_start_at_acc
         self.num_pruning = num_pruning
         self.prune_acc_interval = 0
@@ -93,6 +95,17 @@ class CNNCallback(BasePruneCallback):
         svd_plots.ConvertToEps(self.plot_dir)
         self.lh.reset_svd()
     
+    def on_train_batch_end(self, batch, logs=None):
+        #rng = np.random.default_rng()
+        #data = rng.choice(self.train_img,32)
+        #self.pn.update_neuron_frequency(data, "cnn")
+        pass
+    
+    def __update_neuron(self):
+        rng = np.random.default_rng()
+        data = rng.choice(self.train_img,32)
+        self.pn.update_neuron_frequency(data, "cnn")
+        
     def __prune_and_log(self, step, accuracy):
         num_zeros = self.pn.get_zeros()
         tf.print("zeros before pruning:" + str(num_zeros))
@@ -119,6 +132,11 @@ class CNNCallback(BasePruneCallback):
         if self.pruning_done == True:
             return
         
+        if self.pn.neuron_update_flag() == True:
+            rng = np.random.default_rng()
+            data = rng.choice(self.train_img,32)
+            self.pn.update_neuron_frequency(data, "cnn")
+            
         accuracy = logs["accuracy"]
         if accuracy < self.prune_start_at_acc:
             return
@@ -436,289 +454,3 @@ class EarlyStoppingCallback(keras.callbacks.Callback):
             self.model.stop_training = True
         self.prev_loss = val_loss
         
-"""
-class FWPCallback(BasePruneCallback):
-    def __init__(self, model,
-                 neuron_update_at_acc,
-                 prune_start_at_acc,
-                 num_pruning,
-                 reset_neuron,
-                 final_training_acc,
-                 total_prune_pct,
-                 prune_dir, log_file_name): 
-        super(FWPCallback, self).__init__(model, total_prune_pct, 
-                                          final_training_acc, reset_neuron,
-                                          prune_dir, log_file_name)
-        
-        # Save params in constructor
-        
-        self.model = model
-        self.pruning_done = False
-        self.neuron_update_at_acc = neuron_update_at_acc
-        self.prune_start_at_acc = prune_start_at_acc
-        self.num_pruning = num_pruning
-        self.final_training_acc = final_training_acc
-        self.prune_acc_interval = 0
-        self.total_prune_pct = total_prune_pct
-        self.interval_prune_pct = 0
-        self.pn = pn.PruneNetwork(model)
-        model.set_prune_network(self.pn)
-        self.lh = utils.LogHandler(prune_dir, log_file_name)
-        self.prune_dir = prune_dir
-        
-    def on_train_begin(self, logs=None):
-        self.prune_acc_interval = \
-            (self.final_training_acc - self.prune_start_at_acc)/self.num_pruning
-        self.interval_prune_pct = self.total_prune_pct / self.num_pruning
-        if self.neuron_update_at_acc == 1:
-            self.pn.enable_neuron_update()
-            
-    def on_epoch_end(self, epoch, logs=None):
-        if self.pruning_done == True:
-            return
-        
-        accuracy = logs["accuracy"]
-        
-        if self.neuron_update_at_acc != 1:
-            if accuracy < self.neuron_update_at_acc:
-                return
-            else:
-                self.pn.enable_neuron_update()
-                
-        if accuracy < self.prune_start_at_acc:
-            return
-        
-        self.__prune_and_log(epoch,accuracy)
-        
-        (trainable_wts_cnt,pruned_wts_cnt,prune_pct) = self.pn.get_prune_summary()
-        if prune_pct.numpy() >= self.total_prune_pct:
-            self.pruning_done = True
-            self.pn.disable_neuron_update()
-            #self.pn.write_svd()
-
-        self.prune_start_at_acc += self.prune_acc_interval
-        
-    
-    def __prune_and_log(self, step, accuracy):
-        num_zeros = self.pn.get_zeros()
-        tf.print("zeros before pruning:" + str(num_zeros))
-        
-        self.pn.enable_pruning()
-            
-        self.pn.fwp(self.model,self.interval_prune_pct, accuracy)
-        
-        (total_trainable_wts,
-         total_pruned_wts,prune_pct) = self.pn.get_prune_summary()
-        
-        
-        tf.print("zeros after pruning:" + str(total_pruned_wts.numpy()))
-        
-        self.lh.log(step, total_trainable_wts, total_pruned_wts, prune_pct)   
-        
-
-class OTPCallback(keras.callbacks.Callback):
-    def __init__(self, model,pruning_type, neuron_update_at_acc,
-                 target_prune_pct, prune_at_accuracy,
-                 prune_dir, log_file_name ):
-        self.pruning_type = pruning_type
-        self.neuron_update_at_acc = neuron_update_at_acc
-        self.target_prune_pct = target_prune_pct
-        self.prune_at_accuracy = prune_at_accuracy
-        self.pruning_done = False
-        self.pn = pn.PruneNetwork(model)
-        model.set_prune_network(self.pn)
-        self.lh = utils.LogHandler(prune_dir, log_file_name)
-        self.prune = "on_batch_end"
-        self.one_time_update = 0
-        
-    def on_epoch_end(self, epoch, logs=None):
-        if self.pruning_done == True:
-            return
-        
-        accuracy = logs["accuracy"]
-        
-        if self.neuron_update_at_acc == 1:
-            if accuracy >= self.prune_at_accuracy and self.one_time_update == 0:
-                self.pn.enable_neuron_update()
-                self.one_time_update = 1
-                return
-        elif accuracy > self.neuron_update_at_acc and self.one_time_update == 0:
-            self.pn.enable_neuron_update()
-            self.one_time_update = 1
-            return
-         
-        if accuracy < self.prune_at_accuracy:
-            return 
-        
-        self.__prune_and_log(epoch,accuracy)
-        
-    def on_train_end(self,logs=None):
-        self.lh.write_to_file()
-    
-    def __prune_and_log(self, step, accuracy):
-        if self.pruning_done == True:
-            return
-        
-        if accuracy < self.prune_at_accuracy:
-            return
-        
-        num_zeros = self.pn.get_zeros()
-        tf.print("zeros before pruning:" + str(num_zeros))
-        
-        self.__prune()
-        
-        (total_trainable_wts,
-         total_pruned_wts,prune_pct) = self.pn.get_prune_summary()
-        tf.print("zeros after pruning:" + str(total_pruned_wts.numpy()))
-        
-        self.lh.log(step, total_trainable_wts, total_pruned_wts, prune_pct)
-        
-    def __prune(self):
-        
-        self.pn.enable_pruning()
-        
-        if self.pruning_type == "neurons":
-            self.pn.prune_neurons(self.model,self.target_prune_pct)
-        elif self.pruning_type == "weights":
-            self.pn.prune_weights(self.model,self.target_prune_pct)
-        elif self.pruning_type == "absolute_weights":
-            self.pn.prune_abs_wts(self.model,self.target_prune_pct)
-        
-        self.pruning_done = True
-        self.pn.disable_neuron_update()
-
-
-class PruningCallback(keras.callbacks.Callback):
-    def __init__(self, model, train_data, pruning_type,
-                 pruning_pct, pruning_chg, 
-                 prune_at_accuracy, prune_freq,
-                 reset_neuron_count,
-                 neuron_start_at_acc,
-                 prune_dir, file_name):
-        #Save params in constructor
-        
-        self.train_data = train_data
-        self.pruning_type = pruning_type
-        self.pruning_pct = pruning_pct
-        self.pruning_chg = pruning_chg
-        self.prune_at_accuracy = prune_at_accuracy
-        self.prune_freq = prune_freq
-        self.reset_neuron_count =  reset_neuron_count
-        self.accuracy = 0
-        self.count = 0
-        self.pn = pn.PruneNetwork(model)
-        model.set_prune_network(self.pn)
-        self.prev_loss = 1
-        self.lh = utils.LogHandler(prune_dir, file_name)
-        
-        self.neuron_start_at_acc = neuron_start_at_acc
-        
-    
-    def on_epoch_begin(self, epoch, logs=None):
-        if self.accuracy < self.prune_at_accuracy:
-            return
-        self.count += 1
-        
-        if self.count%self.prune_freq != 0:
-            return
-        
-        num_zeros = self.pn.get_zeros()
-        tf.print("zeros before pruning:" + str(num_zeros))
-        
-        if self.pruning_type == "neurons":
-            self.pn.sparsify_neurons(self.model,self.pruning_pct)
-        elif self.pruning_type == "weights":
-            self.pn.sparsify_weights(self.model,self.pruning_pct)
-        elif self.pruning_type == "absolute_weights":
-            self.pn.sparsify_absolute_weights(self.model,self.pruning_pct)
-        
-        (total_trainable_wts,
-         total_pruned_wts,prune_pct) = self.pn.get_prune_summary()
-        tf.print("zeros after pruning:" + str(total_pruned_wts.numpy()))
-        
-        self.lh.log(epoch, total_trainable_wts, total_pruned_wts, prune_pct)
-        
-        self.pruning_pct += self.pruning_chg
-        
-        if self.reset_neuron_count == True:
-            self.pn.reset_neuron_count()
-            
-    def on_train_end(self,logs=None):
-        self.lh.write_to_file()
-        
-    def on_batch_end(self,batch,logs=None):
-        self.accuracy = logs["accuracy"]
-        # update the neuron frequency
-        if self.accuracy >= self.neuron_start_at_acc:
-            self.pn.enable_neuron_update()
-    
-    def on_batch_end(self,batch,logs=None):
-        self.accuracy = logs["accuracy"]
-        # update the neuron frequency
-        if self.accuracy >= self.neuron_ctr_start_at_acc:
-            # generate a random batch of data of size 32
-            np.random.shuffle(self.train_data)
-            shuffle_data = self.train_data[0:32]
-            #sample_idxs = np.unique(np.random.randint(self.train_data.shape[0], size=32))
-            #shuffle_data  = self.train_data[sample_idxs]
-            self.pn.update_neuron_frequency(shuffle_data)       
-
-
-class IntervalPruningCallback(keras.callbacks.Callback):
-    def __init__(self, model, pruning_type,
-                 pruning_values, epoch_range,
-                 reset_neuron_count,
-                 prune_dir, file_name):
-        #Save params in constructor
-        
-        self.model = model
-        self.pruning_type = pruning_type
-        self.pruning_values = pruning_values
-        self.epoch_range = epoch_range
-        self.total_idx = len(self.epoch_range)
-        self.idx = 0
-        self.reset_neuron_count = reset_neuron_count
-        self.pn = pn.PruneNetwork(model)
-        model.set_prune_network(self.pn)
-        self.lh = utils.LogHandler(prune_dir, file_name)
-    
-    def on_train_begin(self, logs=None):
-        self.pn.enable_neuron_update()
-        #total_epochs = self.model.history.params["epochs"]
-        #self.prune_at_interval = self.pruning_range/(self.pruning_intervals+1)
-        #self.pruning_pct = self.target_pruning_pct/self.pruning_intervals
-        
-    def on_epoch_begin(self, epoch, logs=None):
-        
-        if self.idx == self.total_idx:
-            self.pn.disable_neuron_update()
-            return
-        
-        prune_at_epoch = self.epoch_range[self.idx]
-        if (epoch+1) != prune_at_epoch:
-            return
-        self.pn.enable_pruning()
-        
-        pruning_pct = self.pruning_values[self.idx]
-        self.idx += 1
-        
-        num_zeros = self.pn.get_zeros()
-        tf.print("zeros before pruning:" + str(num_zeros))
-        
-        if self.pruning_type == "neurons":
-            self.pn.sparsify_neurons(self.model,self.pruning_pct)
-        elif self.pruning_type == "weights":
-            self.pn.prune_weights(self.model, pruning_pct)
-        elif self.pruning_type == "absolute_weights":
-            self.pn.sparsify_absolute_weights(self.model,self.pruning_pct)
-        
-        (total_trainable_wts,
-         total_pruned_wts,prune_pct) = self.pn.get_prune_summary()
-        tf.print("zeros after pruning:" + str(total_pruned_wts.numpy()))
-        
-        self.lh.log(epoch, total_trainable_wts, total_pruned_wts, prune_pct)
-        
-        if self.reset_neuron_count == True:
-            self.pn.reset_neuron_count()
-
-"""

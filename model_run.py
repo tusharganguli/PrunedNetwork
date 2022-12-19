@@ -127,6 +127,7 @@ class ModelRun():
         tensorboard_cb = keras.callbacks.TensorBoard(tb_log_filename)
         
         pruning_cb = pc.CNNCallback(model,
+                                    self.train_img,
                                     prune_start_at_acc,
                                     num_pruning,    final_acc,
                                     prune_pct,      neuron_update,
@@ -145,7 +146,8 @@ class ModelRun():
         model.compile(optimizer=self.optimizer, 
                       loss=self.loss,
                       metrics=[self.acc_metrics, self.top1_metrics, self.top5_metrics], 
-                      run_eagerly=True)
+                      #run_eagerly=True
+                      )
 
         history = model.fit(self.train_img, 
                             self.train_labels, 
@@ -488,17 +490,13 @@ class ModelRun():
         conv_1 = DefaultConv2D(filters=32, kernel_size=3)(input_layer)
         max_pool_1 = keras.layers.MaxPooling2D(pool_size=2)(conv_1)
         conv_2 = DefaultConv2D(filters=64)(max_pool_1)
-        conv_3 = DefaultConv2D(filters=64)(conv_2)
-        max_pool_2 = keras.layers.MaxPooling2D(pool_size=2)(conv_3)
+        max_pool_2 = keras.layers.MaxPooling2D(pool_size=2)(conv_2)
         flatten = keras.layers.Flatten()(max_pool_2)
-        #dense_1 = keras.layers.Dense(units=128, activation='relu')(flatten)
-        #keras.layers.Dropout(0.5),
         dense_2 = keras.layers.Dense(units=64, activation='relu')(flatten)
-        #keras.layers.Dropout(0.5),
         output_layer = keras.layers.Dense(units=10, activation='softmax', 
                                     name='output')(dense_2)
         
-        model = cmod.CustomModel(inputs=input_layer,outputs=output_layer, nw_type="cnn")
+        model = cmod.CustomModel(inputs=input_layer,outputs=output_layer)
         return model
 
 
@@ -525,7 +523,7 @@ class ModelRun():
         output_layer = keras.layers.Dense(units=10, activation='softmax', 
                                     name='output')(dense_2)
         
-        model = cmod.CustomModel(inputs=input_layer,outputs=output_layer, nw_type="cnn")
+        model = cmod.CustomModel(inputs=input_layer,outputs=output_layer)
         return model
     
     def create_model(self,run_type):
@@ -583,273 +581,3 @@ class ModelRun():
         return model
     
     
-"""
-    def evaluate_fwp(self, neuron_update_at_acc,
-                     prune_start_at_acc, num_pruning,
-                     final_training_acc, total_prune_pct,
-                     reset_neuron=False):
-        
-        history_list = []
-        evaluate_list = []
-        epoch_list = []
-        prune_pct_list = []
-        run_type = "fwp"
-        
-        log_file_name = run_type
-        log_file_name += "_PrunePct_" + str(total_prune_pct)
-        log_file_name += "_PruneStart_" + str(prune_start_at_acc)
-        log_file_name += "_FinalAcc_" + str(final_training_acc)
-        
-        if reset_neuron == True:
-            log_file_name += "_ResetNeuron"
-        
-        tf.keras.backend.clear_session()
-        model = self.create_model(run_type)
-        
-        stop_cb = pc.StopCallback(final_training_acc)
-        
-        run_log_dir = self.__get_run_logdir(self.log_dir,log_file_name)
-        prune_log_dir = self.__get_run_logdir(self.prune_dir,log_file_name)
-        tensorboard_cb = keras.callbacks.TensorBoard(run_log_dir)
-        pruning_cb = pc.FWPCallback(model, neuron_update_at_acc,
-                                    prune_start_at_acc,
-                                    num_pruning,
-                                    reset_neuron,
-                                    final_training_acc,
-                                    total_prune_pct,
-                                    prune_log_dir, log_file_name)
-    
-        model.compile(optimizer=self.optimizer, 
-                      loss=self.loss,
-                      metrics=[self.metrics], 
-                      run_eagerly=True)
-
-        history = model.fit(self.train_img, 
-                            self.train_labels, 
-                            epochs=self.epochs,
-                            validation_data=(self.valid_img,self.valid_labels),
-                            callbacks=[stop_cb,pruning_cb,tensorboard_cb])
-        
-        self.model = model
-        
-        num_epochs = stop_cb.get_num_epochs()
-        epoch_list.append(num_epochs)
-        
-        history_list.append(history)    
-        eval_result = model.evaluate(self.test_img,self.test_labels)
-        evaluate_list.append(eval_result)
-        (train_loss,train_accuracy, 
-         val_loss, val_accuracy,
-         test_loss, test_accuracy) = self.__generate_avg(history_list, 
-                                                     evaluate_list)
-                                                             
-        (total_trainable_wts,
-        total_pruned_wts,prune_pct_achieved) = self.__generate_model_summary(model)
-        prune_pct_achieved = prune_pct_achieved.numpy()
-        prune_pct_list.append(prune_pct_achieved)
-        del model
-    
-        self.__log_data(run_type, history_list, evaluate_list, epoch_list,
-                        prune_pct_list )
-        
-        
-    def evaluate_interval_pruning(self, run_type, num_runs, pruning_type, 
-                                  final_training_accuracy,
-                                  pruning_values,
-                                  epoch_range,
-                                  reset_neuron_count = False ):
-        
-        history_list = []
-        evaluate_list = []
-        epoch_list = []
-        prune_pct_list = []
-        
-        target_pruning_pct = sum(pruning_values)
-        log_file_name = run_type
-        log_file_name += "_PrunePct_" + str(target_pruning_pct)
-        log_file_name += "_PruneType_" + pruning_type
-        log_file_name += "_FinalAcc_" + str(final_training_accuracy)
-        if reset_neuron_count == True:
-            log_file_name += "_ResetNeuron"    
-            
-        for runs in range(num_runs):   
-            tf.keras.backend.clear_session()
-            model = self.__create_model(run_type)
-            
-            stop_cb = pc.StopCallback(final_training_accuracy)
-            
-            run_log_dir = self.__get_run_logdir(self.log_dir,log_file_name)
-            tensorboard_cb = keras.callbacks.TensorBoard(run_log_dir)
-            pruning_cb = pc.IntervalPruningCallback(model,pruning_type,
-                                                    pruning_values,
-                                                    epoch_range,
-                                                    reset_neuron_count,
-                                                    self.prune_dir, log_file_name)
-        
-            model.compile(optimizer=self.optimizer, 
-                          loss=self.loss,
-                          metrics=[self.metrics], 
-                          run_eagerly=True)
-
-            history = model.fit(self.train_img, 
-                                self.train_labels, 
-                                epochs=self.epochs,
-                                validation_data=(self.valid_img,self.valid_labels),
-                                callbacks=[stop_cb,pruning_cb,tensorboard_cb])
-            
-            self.model = model
-            
-            num_epochs = stop_cb.get_num_epochs()
-            epoch_list.append(num_epochs)
-            
-            history_list.append(history)    
-            eval_result = model.evaluate(self.test_img,self.test_labels)
-            evaluate_list.append(eval_result)
-            #(train_loss,train_accuracy, 
-            # val_loss, val_accuracy,
-            # test_loss, test_accuracy) = self.__generate_avg(history_list, 
-            #                                             evaluate_list)
-                                                                 
-            (total_trainable_wts,
-            total_pruned_wts,prune_pct_achieved) = self.__generate_model_summary(model)
-            prune_pct_achieved = prune_pct_achieved.numpy()
-            prune_pct_list.append(prune_pct_achieved)
-            del model
-        
-        self.__log_data(run_type, history_list, evaluate_list, epoch_list,
-                        prune_pct_list )
-        
-    def evaluate_pruning(self, run_type, num_runs, pruning_type, 
-                  training_accuracy,
-                  pruning_pct, pruning_change,
-                  prune_at_accuracy,
-                  prune_freq,
-                  neuron_ctr_start_at_acc = 0, reset_neuron_count = False ):
-        
-        history_list = []
-        evaluate_list = []
-        epoch_list = []
-        prune_pct_list = []
-        
-        log_file_name = "PrunePct_" + str(pruning_pct)
-        if pruning_change > 0:
-            log_file_name += "_Inc"
-        elif pruning_change < 0:
-            log_file_name += "_Dec"    
-        log_file_name += "_PruneType_" + pruning_type # + "_pruning_" + str(pruning_change)
-        log_file_name += "_NeuronUpdateAtAcc_" + str(neuron_ctr_start_at_acc)
-        log_file_name += "_PruneAtAcc_" + str(prune_at_accuracy)
-        log_file_name += "_FinalAcc_" + str(training_accuracy)
-        if reset_neuron_count == True:
-            log_file_name += "_ResetNeuron"    
-        
-        for runs in range(num_runs):   
-            tf.keras.backend.clear_session()
-            model = self.__create_model(run_type)
-            
-            stop_cb = pc.StopCallback(training_accuracy)
-            
-            run_log_dir = self.__get_run_logdir(self.log_dir,log_file_name)
-            tensorboard_cb = keras.callbacks.TensorBoard(run_log_dir)
-            pruning_cb = pc.PruningCallback(model,self.train_img, pruning_type,
-                                            pruning_pct, pruning_change,
-                                            prune_at_accuracy,
-                                            prune_freq,
-                                            reset_neuron_count,
-                                            neuron_ctr_start_at_acc,
-                                            self.prune_dir, log_file_name)
-        
-            model.compile(optimizer=self.optimizer, 
-                          loss=self.loss,
-                          metrics=[self.metrics], 
-                          run_eagerly=True)
-
-            history = model.fit(self.train_img, 
-                                self.train_labels, 
-                                epochs=self.epochs,
-                                validation_data=(self.valid_img,self.valid_labels),
-                                callbacks=[stop_cb,pruning_cb,tensorboard_cb])
-        
-            self.model = model
-            
-            num_epochs = stop_cb.get_num_epochs()
-            epoch_list.append(num_epochs)
-            
-            history_list.append(history)    
-            eval_result = model.evaluate(self.test_img,self.test_labels)
-            evaluate_list.append(eval_result)
-            
-            (total_trainable_wts,
-             total_pruned_wts,prune_pct_achieved) = self.__generate_model_summary(model)
-            prune_pct_achieved = prune_pct_achieved.numpy()
-            prune_pct_list.append(prune_pct_achieved)
-            del model
-            
-        self.__log_data(run_type, history_list, evaluate_list, epoch_list,
-                        prune_pct_list )
-    
-    def evaluate_otp(self,run_type, num_runs, 
-                     pruning_type, neuron_update_at_acc,
-                     target_prune_pct, prune_at_accuracy,
-                     final_training_accuracy):
-        
-        history_list = []
-        evaluate_list = []
-        epoch_list = []
-        prune_pct_list = []
-        prune_at_acc_lst = []
-        
-        log_file_name = run_type
-        log_file_name += "_PruneType_" + pruning_type
-        log_file_name += "_NeuronUpdateAtAcc_" + str(neuron_update_at_acc)
-        log_file_name += "_PrunePct_" + str(target_prune_pct)
-        log_file_name += "_PruneAtAcc_" + str(prune_at_accuracy)
-        log_file_name += "_FinalAcc_" + str(final_training_accuracy)
-        
-        for runs in range(num_runs):   
-            tf.keras.backend.clear_session()
-            model = self.__create_model(run_type)
-            
-            stop_cb = pc.StopCallback(final_training_accuracy)
-            
-            run_log_dir = self.__get_run_logdir(self.log_dir,log_file_name)
-            tensorboard_cb = keras.callbacks.TensorBoard(run_log_dir)
-            pruning_cb = pc.OTPCallback(model,pruning_type, neuron_update_at_acc,
-                                        target_prune_pct, prune_at_accuracy,
-                                        self.prune_dir, log_file_name)
-        
-            model.compile(optimizer=self.optimizer, 
-                          loss=self.loss,
-                          metrics=[self.metrics], 
-                          run_eagerly=True)
-
-            history = model.fit(self.train_img, 
-                                self.train_labels, 
-                                epochs=self.epochs,
-                                validation_data=(self.valid_img,self.valid_labels),
-                                callbacks=[stop_cb,pruning_cb,tensorboard_cb])
-            
-            self.model = model
-            
-            num_epochs = stop_cb.get_num_epochs()
-            epoch_list.append(num_epochs)
-            
-            history_list.append(history)    
-            eval_result = model.evaluate(self.test_img,self.test_labels)
-            evaluate_list.append(eval_result)
-            (train_loss,train_accuracy, 
-            val_loss, val_accuracy,
-            test_loss, test_accuracy) = self.__generate_avg(history_list, 
-                                                             evaluate_list)
-            (total_trainable_wts,
-            total_pruned_wts,prune_pct_achieved) = self.__generate_model_summary(model)
-            prune_pct_achieved = prune_pct_achieved.numpy()
-            prune_pct_list.append(prune_pct_achieved)
-            prune_at_acc_lst.append(prune_at_accuracy)
-            del model
-        self.__log_data(run_type, history_list, evaluate_list, epoch_list,
-                        prune_pct_list, prune_at_acc_lst )
-
-
-
-"""
