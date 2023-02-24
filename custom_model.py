@@ -8,7 +8,6 @@ Created on Fri Sep 10 21:27:25 2021
 
 import tensorflow as tf
 from tensorflow import keras
-import utils
 
 class CustomModel(keras.Model):
     def __init__(self, inputs,outputs):
@@ -49,7 +48,7 @@ class CustomModel(keras.Model):
         return {m.name: m.result() for m in self.metrics}
             
     def __update_gradients(self, gradients):
-        
+        #print("__update_gradients")
         trainable_vars = self.trainable_variables
         for idx in range(len(trainable_vars)):
             if "kernel" not in trainable_vars[idx].name:

@@ -6,25 +6,47 @@ Created on Fri Sep 17 02:10:47 2021
 @author: tushar
 """
 import tensorflow as tf
+import tensorflow_datasets as tfds
+import os
 
 class Data():
     def __init__(self,dataset,validation_split=0.1):
         self.dataset = dataset
         self.validation_split = validation_split
     
-    def load_disk(self):
+    def load_disk(obj):
         """
-        Loads the databse from the disk locally
+        Loads the database from the disk locally
 
         Returns
         -------
         None.
 
         """
-    
+        data_dir = "/home/tushar/datadrive/Spyder/NetworkPruning/PrunedNetwork/Imagenet"
+        write_dir = data_dir# + "/temp"
+        download_config = tfds.download.DownloadConfig(
+                            extract_dir=os.path.join(write_dir, 'extracted'),
+                            manual_dir=data_dir
+                            ) 
+        """
+        download_and_prepare_kwargs = {
+                        'download_dir': os.path.join(write_dir, 'downloaded'),
+                        'download_config': download_config,
+                        }
+        ds = tfds.load('imagenet2012', 
+               data_dir=os.path.join(write_dir, 'data'),         
+               split='train', 
+               shuffle_files=False, 
+               download=False, 
+               as_supervised=True,
+               download_and_prepare_kwargs=download_and_prepare_kwargs)
+        """
+        tfds.builder("imagenet2012").download_and_prepare(download_config=download_config)
+        
     def load_data(self):
-        #if type(self.dataset) != tensorflow.keras.datasets:
-        #    return load_disk()
+        if type(self.dataset) != tf.keras.datasets:
+            return self.load_disk()
         # Load MNIST dataset
         (train_img, train_labels), (test_img, test_labels) = self.dataset.load_data()
         validation_sz = tf.cast(train_img.shape[0] * self.validation_split, dtype=tf.int32)

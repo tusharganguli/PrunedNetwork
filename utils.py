@@ -246,12 +246,23 @@ class LogHandler:
         sig_df = pd.DataFrame()
         
         for layer in model.layers:
-            if not isinstance(layer,keras.layers.Dense):
+            if not isinstance(layer,keras.layers.Dense) and \
+                not isinstance(layer,keras.layers.Conv2D):
                 continue
             weights = layer.get_weights()
-            u,s,vt = svd(weights[0])
-            df_s = pd.DataFrame(s)
-            sig_df = pd.concat([sig_df,df_s], ignore_index=True, axis=1)
+            """
+            if "conv" in layer.name:
+                dim = weights[0].shape
+                filters = dim[-1]
+                for idx in range(filters):
+                    u,s,vt = svd(np.matrix(weights[0][:,:,:,idx]))
+                    df_s = pd.DataFrame(s)
+                    sig_df = pd.concat([sig_df,df_s], ignore_index=True, axis=1)
+            """
+            if "dense" in layer.name:
+                u,s,vt = svd(weights[0])
+                df_s = pd.DataFrame(s)
+                sig_df = pd.concat([sig_df,df_s], ignore_index=True, axis=1)
             
         return sig_df
 

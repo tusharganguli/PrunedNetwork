@@ -20,7 +20,7 @@ class PruneNetwork:
         self.activation_model = []
         self.__create_functors()
         #self.neuron_len = 0
-        self.neuron = self.__create_neurons()
+        self.layer_name_lst,self.activation_lst = self.__create_activation_list()
         
         # variable for prune_optimal
         self.pruning_rate = 1
@@ -32,7 +32,7 @@ class PruneNetwork:
     def __del__(self):
         del self.model
         del self.functors
-        del self.neuron
+        del self.activation_lst
         del self.pruning_rate
         del self.neuron_update_type
     
@@ -49,7 +49,8 @@ class PruneNetwork:
             layer_outputs += [layer.output]
         
         #layer_outputs = [layer.output for layer in self.model.layers] 
-        self.activation_model = models.Model(inputs=self.model.input, outputs=layer_outputs)
+        self.activation_model = models.Model(inputs=self.model.input, 
+                                             outputs=layer_outputs)
     """
     def __create_functors(self):
         inp = self.model.input
@@ -72,9 +73,10 @@ class PruneNetwork:
             
         # evaluation functions
         self.functors = [K.function([inp], [out]) for out in outputs]
-        #self.neuron = neuron_lst
+        #self.activation_lst = neuron_lst
     """
     
+    """
     def __create_neurons(self):
         trainable_vars = self.model.trainable_variables
         neuron = []
@@ -90,7 +92,20 @@ class PruneNetwork:
             neuron.append(zeros)
             
         return neuron
-    
+    """
+    def __create_activation_list(self):
+        activation_lst = []
+        layer_name_lst = []
+        zeros = []
+        layers = self.model.layers
+        total_layers = len(layers)
+        for idx in range(total_layers):
+            if "dense" in layers[idx].name or "conv" in layers[idx].name:
+                zeros = tf.zeros(layers[idx].output.shape[-1],dtype=tf.float32)
+                name = layers[idx].name
+                activation_lst.append(zeros)
+                layer_name_lst.append(name)
+        return [layer_name_lst,activation_lst]
     
     def enable_neuron_update(self, neuron_update_type):
         self.neuron_update = True
@@ -104,7 +119,100 @@ class PruneNetwork:
     
     def enable_pruning(self):
         self.model.enable_pruning()
+    
+    def update_neuron_frequency(self,data, nw_type):
+        idx = 0
+        activations = self.activation_model(data)
+        for activation_data in activations:
+            #self.__update_neuron(idx,activation_data)
+            act_dim = activation_data.shape
+            if tf.size(act_dim) == 4: # conv layer
+                #activation_sum = tf.reduce_sum(activation_data, [0,1,2])
+                activation_mean = tf.reduce_mean(activation_data, axis=[0,1,2])
+            else:
+                #activation_sum = tf.reduce_sum(activation_data, [0])
+                activation_mean = tf.reduce_mean(activation_data, axis=[0])
+            self.activation_lst[idx] = tf.add(self.activation_lst[idx], activation_mean)
+            idx += 1
+
+    def prune_cnn(self, pruning_pct, pruning_type):
+        all_weights = []
+        layer_lst = []
+        data_lst = []
+        dim_lst = []
+        layer_idx = 0
+        act_idx = 0
+        total_len = 0
+        main_idx = 0
+        
+        for layer in self.model.layers:
+            if  not isinstance(layer,keras.layers.Dense) and \
+                not isinstance(layer,keras.layers.Conv2D) or layer.name == "output":
+                layer_idx += 1
+                continue
+            weights = layer.get_weights()
+            all_weights.append(weights)
             
+            # get kernel weights
+            kernel = weights[0]
+            dim_lst.append([kernel.shape,tf.size(kernel).numpy()])
+            flatten_wts = kernel.flatten()
+            
+            act = self.activation_lst[act_idx].numpy()
+            prod = abs(kernel * act)
+            flatten_prod = prod.flatten()
+            dim = len(flatten_prod)
+            data_lst.extend([(layer_idx, main_idx+idx, 
+                              flatten_wts[idx], flatten_prod[idx])
+                             for idx in range(dim)])
+            
+            layer_lst.append(layer)
+            total_len += dim
+            main_idx = dim
+            layer_idx += 1
+            act_idx += 1
+            del kernel
+         
+        df_data = pd.DataFrame(data_lst,
+                               columns=["layer","index","wts","prod"])
+        del data_lst
+        
+        df_wts = df_data.loc[df_data["wts"] != 0]
+        df_zero_wt = df_data.loc[df_data["wts"] == 0]
+        
+        df_wts_sort = df_wts.sort_values(["prod"], ascending=True)
+        
+        pruning_idx = tf.cast(total_len * (pruning_pct/100),dtype=tf.int32)
+        pruning_idx = pruning_idx.numpy()
+        df_wts_sort.iloc[0:pruning_idx,2] = 0
+        
+        # also check the condition number largest sig val / smallest sig val
+        
+        #df_wts = df_wts_sort.append(df_zero_wt, ignore_index=True)
+        df_wts = pd.concat([df_wts_sort,df_zero_wt], ignore_index=True)
+        del df_wts_sort
+        
+        df_data = df_wts.sort_values(["layer","index"], ascending=True)
+        
+        # retrieve all kernel values from the sorted list
+        kernel_wts = df_data["wts"]
+        del df_data
+        # convert the lists into arrays
+        kernel_arr = np.array(kernel_wts)
+        del kernel_wts
+        
+        start_offset = 0
+        for idx in range(len(layer_lst)):
+            dim = dim_lst[idx][0]
+            total_elements = dim_lst[idx][1]
+            end_offset = start_offset+total_elements
+            kernel = np.reshape(kernel_arr[start_offset:end_offset],(dim))
+            start_offset = end_offset
+            all_weights[idx][0] = kernel
+            del kernel
+            layer_lst[idx].set_weights(all_weights[idx])                      
+
+        
     def cnn(self, pruning_pct, pruning_type):
         all_weights = []
         layer_lst = []
@@ -128,22 +236,21 @@ class PruneNetwork:
             total_len += total_dim
             dim_lst.append([kernel.shape,total_dim])
             
-            # get the neuron freq 
-            prune_flag = 0
             if layer.name != "output":
-                neuron_freq = self.neuron[layer_idx].numpy()
+                neuron_freq = self.activation_lst[layer_idx].numpy()
                 flatten_neuron = neuron_freq.flatten()
+                abs_flatten_neuron = np.abs(flatten_neuron)
                 flatten_wts = kernel.flatten()
                 layer_lst.append(layer)
             
-                data_lst.extend([(layer_idx, i, flatten_neuron[i], flatten_wts[i], prune_flag) 
+                data_lst.extend([(layer_idx, i, abs_flatten_neuron[i], flatten_wts[i]) 
                            for i in range(total_dim)])
                 del neuron_freq
                 layer_idx += 1
             del kernel
          
         df_data = pd.DataFrame(data_lst,
-                               columns=["layer","idx","flatten_neuron","flatten_wts","flag"])
+                               columns=["layer","idx","flatten_neuron","flatten_wts"])
         del data_lst
         
         df_wts = df_data.loc[df_data["flatten_wts"] != 0]
@@ -183,6 +290,7 @@ class PruneNetwork:
             del kernel
             layer_lst[idx].set_weights(all_weights[idx])                      
     
+            
     def prune_redundant_wts(self, df_data, df_data_sort, dim_lst):
         # retieve all neurons with all zero wts
         df_zero = df_data_sort.loc[df_data_sort["wts"] == 0]
@@ -224,7 +332,7 @@ class PruneNetwork:
             prune_flag = 0
             prod = 0
             if layer.name != "output":
-                neuron_freq = self.neuron[layer_idx].numpy()
+                neuron_freq = self.activation_lst[layer_idx].numpy()
                 layer_lst.append(layer)
             
                 data_lst.extend([(layer_idx,i,j, neuron_freq[j], kernel[i][j], prune_flag, prod) 
@@ -341,7 +449,7 @@ class PruneNetwork:
                 weights = layer.get_weights()
                 
                 # get the neuron freq 
-                neuron_freq = self.neuron[layer_cnt].numpy()
+                neuron_freq = self.activation_lst[layer_cnt].numpy()
                 pruning_range = np.linspace(3,1,5)
                 for pruning_rate in pruning_range:
                     kernel,pruning = self.__prune_avg(weights, neuron_freq,
@@ -405,7 +513,7 @@ class PruneNetwork:
             all_weights.append(weights)
             
             # get the neuron freq 
-            neuron_freq = self.neuron[layer_cnt].numpy()
+            neuron_freq = self.activation_lst[layer_cnt].numpy()
             
             # get kernel weights
             kernel = weights[0]
@@ -482,7 +590,7 @@ class PruneNetwork:
             all_weights.append(weights)
             
             # get the neuron freq 
-            neuron_freq = self.neuron[layer_cnt].numpy()
+            neuron_freq = self.activation_lst[layer_cnt].numpy()
             
             # get kernel weights
             kernel = weights[0]
@@ -537,48 +645,47 @@ class PruneNetwork:
             del kernel
             layer_lst[idx].set_weights(all_weights[idx])      
 
-    def update_neuron_frequency(self,data, nw_type):
-        idx = 0
-        activations = self.activation_model(data)
-        for activation_data in activations:
-            self.__update_neuron(idx,activation_data)
-            idx += 1
-
+    
     def __update_neuron(self, idx, activation_data):
-        trainable_var = self.model.trainable_variables[2*idx]
-        activation_mean = tf.math.reduce_mean(tf.abs(activation_data),axis=0)
-        
+        #trainable_var = self.model.trainable_variables[2*idx]
+        #activation_mean = tf.math.reduce_mean(tf.abs(activation_data),axis=0)
+        #activation_mean = tf.cast(activation_mean,dtype=tf.float64)
+        """
         if "conv" in trainable_var.name:
             dims = activation_mean.shape
             activation_mean = tf.reshape(activation_mean, [dims[0],dims[1],1,dims[2]])
             output_neuron = tf.nn.conv2d(trainable_var, activation_mean, 
                                          strides=[1, 1, 1, 1], padding='SAME')
-            self.neuron[idx] = tf.add(self.neuron[idx], output_neuron)
-        elif "dense" in trainable_var.name:
-            self.neuron[idx] = tf.add(self.neuron[idx], activation_mean)
-        else:
-            raise Exception("Unknown layer")
-
-    
-    def __old_update_cnn_neuron(self, idx, activation_data):
-        filter_count = activation_data.shape[-1]
-        trainable_var = self.model.trainable_variables[2*idx]
-        kernel_sz = trainable_var.shape[0:2]
-        
-        #if "dense" in trainable_var.name:
-        #    self.__update_frequency(idx,activation_data)
-        
+            self.activation_lst[idx] = tf.add(self.activation_lst[idx], output_neuron)
         
         if "conv" in trainable_var.name:
-            output_neuron = tf.keras.layers.Conv2D( filter_count, kernel_sz, 
-                                   activation='relu', padding="same", 
-                                   input_shape=kernel_sz )(trainable_var)
-            self.neuron[idx] = tf.add(self.neuron[idx], output_neuron)
-        elif "dense" in trainable_var.name:
-            self.__update_frequency(idx,activation_data)
-        else:
-            raise Exception("Unknown layer")
+            dims = activation_mean.shape
+            n_filters = dims[-1]
+            ip_shape = trainable_var.shape
+            ip_kernel_dim = [ip_shape[0],ip_shape[1]]
+            in_ch = ip_shape[2]
+            out_ch = ip_shape[3]
+            output_arr = np.empty(ip_shape, dtype=float)
+            for i_ch in range(in_ch):
+                for o_ch in range(out_ch):
+                    ip_kernel = trainable_var[:,:,i_ch,o_ch]
+                    ip_kernel_dim = ip_kernel.shape
+                    ip_kernel = tf.reshape(ip_kernel, [1,ip_kernel_dim[0],
+                                                       ip_kernel_dim[1],1])
+                    act_filter = activation_mean[:,:,o_ch]
+                    act_filter_dim = act_filter.shape
+                    act_filter = tf.reshape(act_filter, [act_filter_dim[0],
+                                                         act_filter_dim[1],1,1])
+                    
+                    output = tf.nn.conv2d(ip_kernel, act_filter, 
+                                          strides=[1, 1, 1, 1], padding='SAME')
+                    output = output*ip_kernel
+                    output_arr[:,:,i_ch,o_ch] = output[0,:,:,0]
+            output_tensor = tf.convert_to_tensor(output_arr,dtype=tf.float32)
+            self.activation_lst[idx] = tf.add(self.activation_lst[idx], output_tensor)
         
+        self.activation_lst[idx] = tf.add(self.activation_lst[idx], activation_mean)
+        """        
     
     def get_zeros(self):
         wts = self.model.trainable_variables
@@ -600,14 +707,14 @@ class PruneNetwork:
                 num_zeros = tf.size(kernel_arr[np.where(kernel_arr == 0)])
                 pruned_wts_cnt = tf.add(pruned_wts_cnt,num_zeros)
         
-        tf.print("Trainable variables:",trainable_wts_cnt)
-        tf.print("Variables pruned:",pruned_wts_cnt)
+        #tf.print("Trainable variables:",trainable_wts_cnt)
+        #tf.print("Variables pruned:",pruned_wts_cnt)
         prune_pct = (pruned_wts_cnt/trainable_wts_cnt)*100
-        tf.print("Prune percentage:",prune_pct)
+        #tf.print("Prune percentage:",prune_pct)
         return (trainable_wts_cnt,pruned_wts_cnt,prune_pct)
     
     def reset_neuron_count(self):
-        for idx in range(len(self.neuron)):
-            zeros = tf.zeros(self.neuron[idx].shape,dtype=tf.float32)
-            self.neuron[idx] = zeros #[0] * len(self.neuron[idx])
+        for idx in range(len(self.activation_lst)):
+            zeros = tf.zeros(self.activation_lst[idx].shape,dtype=tf.float32)
+            self.activation_lst[idx] = zeros #[0] * len(self.activation_lst[idx])
     

@@ -132,7 +132,7 @@ class ModelRun():
                                     num_pruning,    final_acc,
                                     prune_pct,      neuron_update,
                                     pruning_type,   reset_neuron,
-                                    log_handler
+                                    log_handler, tb_log_filename
                                     )
         
         # simple early stopping
@@ -146,7 +146,7 @@ class ModelRun():
         model.compile(optimizer=self.optimizer, 
                       loss=self.loss,
                       metrics=[self.acc_metrics, self.top1_metrics, self.top5_metrics], 
-                      #run_eagerly=True
+                      run_eagerly=True
                       )
 
         history = model.fit(self.train_img, 
@@ -526,10 +526,21 @@ class ModelRun():
         model = cmod.CustomModel(inputs=input_layer,outputs=output_layer)
         return model
     
+    def create_inception_v3(self, run_type):
+        iv3 = keras.applications.inception_v3.InceptionV3(include_top=True, weights=None,
+                                                    classes=10)
+        
+        if run_type != "standard":
+            model = cmod.CustomModel(inputs=iv3.input,outputs=iv3.output)
+        else:
+            model = iv3
+        return model
+    
     def create_model(self,run_type):
         if run_type == "cnn":
-            return self.create_basic_cnn()
+            #return self.create_basic_cnn()
             #return self.create_cnn()
+            return self.create_inception_v3(run_type)
         
         input_layer = keras.Input(shape=(28,28), name="input")
         flatten = keras.layers.Flatten(name="flatten")(input_layer)
@@ -579,5 +590,16 @@ class ModelRun():
         else:
             model = keras.models.Model(inputs=input_layer,outputs=output_layer)
         return model
-    
-    
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        

@@ -50,7 +50,7 @@ class BasePruneCallback(keras.callbacks.Callback):
 class CNNCallback(BasePruneCallback):
     def __init__(self, model, train_img, prune_start_at_acc,
                  num_pruning, final_acc, prune_pct, neuron_update,
-                 pruning_type, reset_neuron, log_handler ):
+                 pruning_type, reset_neuron, log_handler, tb_log_filename ):
         super(CNNCallback, self).__init__(model, prune_pct, 
                                           final_acc, reset_neuron,
                                           log_handler)
@@ -65,6 +65,13 @@ class CNNCallback(BasePruneCallback):
         self.neuron_update = neuron_update
         self.pruning_type = pruning_type
         self.plot_dir = log_handler.get_plot_dir()
+        self.tb_log_filename = tb_log_filename
+        
+        self.prune_summary_writer = tf.summary.create_file_writer(self.tb_log_filename+ "/prune_pct")
+        #logdir = "logs/scalars/" + datetime.now().strftime("%Y%m%d-%H%M%S")
+        #file_writer = tf.summary.create_file_writer(logdir + "/metrics")
+        self.prune_summary_writer.set_as_default()
+        
     
     def __del__(self):
         del self.prune_start_at_acc
@@ -74,7 +81,8 @@ class CNNCallback(BasePruneCallback):
         del self.prune_pct_idx
         del self.neuron_update
         del self.pruning_type
-    
+        del self.prune_summary_writer
+        
     def on_train_begin(self, logs=None):
         self.pn.enable_neuron_update(self.neuron_update)
         
@@ -89,53 +97,56 @@ class CNNCallback(BasePruneCallback):
         
         final_sv = self.lh.get_sv(self.model)
         final_acc = logs["accuracy"]
-        svd_plots.PlotRatio(sig_df, svd_plot_info, layer_cnt, 
-                            final_sv, final_acc, self.plot_dir)
+        #svd_plots.PlotRatio(sig_df, svd_plot_info, layer_cnt, 
+        #                    final_sv, final_acc, self.plot_dir)
         
-        svd_plots.ConvertToEps(self.plot_dir)
+        #svd_plots.ConvertToEps(self.plot_dir)
         self.lh.reset_svd()
-    
-    def on_train_batch_end(self, batch, logs=None):
-        #rng = np.random.default_rng()
-        #data = rng.choice(self.train_img,32)
-        #self.pn.update_neuron_frequency(data, "cnn")
-        pass
-    
+        
     def __update_neuron(self):
         rng = np.random.default_rng()
         data = rng.choice(self.train_img,32)
         self.pn.update_neuron_frequency(data, "cnn")
         
-    def __prune_and_log(self, step, accuracy):
+    def __log_prune_tb(self, epoch):
+        (total_trainable_wts,
+         total_pruned_wts,prune_pct) = self.pn.get_prune_summary()
+        remaining_pct_wts = 1-prune_pct.numpy()
+        tf.summary.scalar('prune_pct', data=remaining_pct_wts, step=epoch)        
+        
+    def __prune_and_log(self, epoch, accuracy):
         num_zeros = self.pn.get_zeros()
-        tf.print("zeros before pruning:" + str(num_zeros))
+        #tf.print("zeros before pruning:" + str(num_zeros))
         
         self.pn.enable_pruning()
         
         self.lh.log_sv(self.model)
         
         prune_pct = self.prune_pct_lst[self.prune_pct_idx]
-        self.pn.cnn(prune_pct, self.pruning_type)
+        self.pn.prune_cnn(prune_pct, self.pruning_type)
         self.prune_pct_idx += 1
         
         (total_trainable_wts,
          total_pruned_wts,prune_pct) = self.pn.get_prune_summary()
         
+        #remaining_pct_wts = 1-prune_pct.numpy()
+        #tf.summary.scalar('prune_pct', data=remaining_pct_wts, step=epoch)        
+        
         self.lh.log_sv(self.model)
         self.lh.log_prune_info(prune_pct, accuracy)
         
-        tf.print("zeros after pruning:" + str(total_pruned_wts.numpy()))
-            
+        #tf.print("zeros after pruning:" + str(total_pruned_wts.numpy()))
+    
+    
     def on_epoch_end(self, epoch, logs=None):
         super(CNNCallback, self).on_epoch_end(epoch, logs)
         
+        self.__log_prune_tb(epoch)
         if self.pruning_done == True:
             return
         
         if self.pn.neuron_update_flag() == True:
-            rng = np.random.default_rng()
-            data = rng.choice(self.train_img,32)
-            self.pn.update_neuron_frequency(data, "cnn")
+            self.__update_neuron()
             
         accuracy = logs["accuracy"]
         if accuracy < self.prune_start_at_acc:
@@ -150,6 +161,8 @@ class CNNCallback(BasePruneCallback):
             #self.lh.write_svd()
 
         self.prune_start_at_acc += self.prune_acc_interval
+        
+        
 
 
 class CIPCallback(BasePruneCallback):

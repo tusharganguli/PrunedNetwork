@@ -15,6 +15,7 @@ import numpy as np
 import model_run as mr
 import generate_plots as gp
 import utils
+import data
 
 db = keras.datasets.fashion_mnist
 f_acc = 0.98
@@ -100,6 +101,9 @@ def cnn_pruning():
     None.
 
     """
+    data.Data.load_disk = classmethod(data.Data.load_disk)
+    data.Data.load_disk()
+    
     log_dir = "cnn"
     model_run = mr.ModelRun(db)
     
