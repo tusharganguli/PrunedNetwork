@@ -23,7 +23,8 @@ class Data():
         None.
 
         """
-        data_dir = "/home/tushar/datadrive/Spyder/NetworkPruning/PrunedNetwork/Imagenet"
+        #data_dir = "/home/tushar/datadrive/Spyder/NetworkPruning/PrunedNetwork/Imagenet"
+        data_dir = "../Imagenet"
         write_dir = data_dir# + "/temp"
         download_config = tfds.download.DownloadConfig(
                             extract_dir=os.path.join(write_dir, 'extracted'),
