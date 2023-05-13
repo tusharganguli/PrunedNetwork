@@ -5,8 +5,10 @@ Created on Tue Aug 31 17:54:36 2021
 
 @author: tushar
 """
+import sys
 from tensorflow import keras
-import tf_pruning as tfp
+if sys.version_info.major == 3 and sys.version_info.minor == 8:
+    import tf_pruning as tfp
 import glob
 import os
 import pandas as pd
