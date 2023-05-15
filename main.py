@@ -103,8 +103,8 @@ def cnn_pruning():
     None.
 
     """
-    data.Data.load_disk = classmethod(data.Data.load_disk)
-    data.Data.load_disk()
+    #data.Data.load_disk = classmethod(data.Data.load_disk)
+    #data.Data.load_disk()
     
     log_dir = "cnn"
     model_run = mr.ModelRun(db)
