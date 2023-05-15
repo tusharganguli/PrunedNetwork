@@ -14,7 +14,7 @@ class Data():
         self.dataset = dataset
         self.validation_split = validation_split
     
-    def load_disk(obj):
+    def load_disk(self):
         """
         Loads the database from the disk locally
 
@@ -25,7 +25,8 @@ class Data():
         """
         #data_dir = "/home/tushar/datadrive/Spyder/NetworkPruning/PrunedNetwork/Imagenet"
         data_dir = "../Imagenet"
-        write_dir = data_dir# + "/temp"
+        #write_dir = data_dir# + "/temp"
+        write_dir = "../temp"
         download_config = tfds.download.DownloadConfig(
                             extract_dir=os.path.join(write_dir, 'extracted'),
                             manual_dir=data_dir
@@ -43,13 +44,18 @@ class Data():
                as_supervised=True,
                download_and_prepare_kwargs=download_and_prepare_kwargs)
         """
-        tfds.builder("imagenet2012").download_and_prepare(download_config=download_config)
+        builder = tfds.builder("imagenet2012")
+        builder.download_and_prepare(download_config=download_config)
+        ds = builder.as_dataset(split=self.validation_split)
+        return ds
         
     def load_data(self):
         if type(self.dataset) != tf.keras.datasets:
-            return self.load_disk()
-        # Load MNIST dataset
-        (train_img, train_labels), (test_img, test_labels) = self.dataset.load_data()
+            ds = self.load_disk()
+            (train_img, train_labels), (test_img, test_labels) = ds.load_data()
+        else:
+            # Load MNIST dataset
+            (train_img, train_labels), (test_img, test_labels) = self.dataset.load_data()
         validation_sz = tf.cast(train_img.shape[0] * self.validation_split, dtype=tf.int32)
         # Normalize the input image so that each pixel value is between 0 and 1.
         # create validation data set
