@@ -50,7 +50,7 @@ class Data():
         return ds
         
     def load_data(self):
-        if type(self.dataset) != tf.keras.datasets:
+        if type(self.dataset) != type(tf.keras.datasets.fashion_mnist):
             ds = self.load_disk()
             (train_img, train_labels), (test_img, test_labels) = ds.load_data()
         else:

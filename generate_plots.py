@@ -16,6 +16,51 @@ import numpy as np
 import os
 import utils
 
+def generate_matrix_heatmap(dir_lst,title_lst, dir_name, prefix):    
+    model_lst = []
+    for d in dir_lst:
+        model_lst.append(keras.models.load_model(d))
+    
+    plt.rc('xtick', labelsize=6)    # fontsize of the tick labels
+    plt.rc('ytick', labelsize=6)
+    
+    idx = 0
+    num_layers = len(model_lst[idx].layers)
+    for idx in range(num_layers):
+        layer_lst = []
+        for m in model_lst:
+            layer_lst.append(m.layers[idx])
+        
+        if not isinstance(layer_lst[0],keras.layers.Dense):
+            continue
+        layer_name = layer_lst[0].name
+        bool_lst = []
+        for l in layer_lst:
+            wts = l.get_weights()[0]
+            dim = wts.shape
+            s_bool = wts > 0
+            bool_lst.append(np.invert(s_bool))
+        
+        subplot_cnt = len(dir_lst)
+        fig, axs = plt.subplots(1,subplot_cnt)
+        title = layer_name + ": " + str(dim[0]) + "x" + str(dim[1])
+        fig.suptitle( title, fontsize=10)
+        
+        if subplot_cnt == 1:
+            axs.set_title(title_lst[0])
+            im = axs.imshow(bool_lst[0], cmap='hot', interpolation='nearest')
+            im.set_clim(0,1)
+        else:
+            for s in range(subplot_cnt):
+                axs[s].set_title(title_lst[s])
+                im = axs[s].imshow(bool_lst[s], cmap='hot', interpolation='nearest')
+                im.set_clim(0,1)
+        
+        filename = dir_name + "/" + prefix + "_" + layer_name + ".png"
+        plt.savefig(filename, dpi=600)
+        plt.show()
+        
+
 def matrix_heatmap(std_dir, freq_model_dir, 
                    tf_model_dir, dir_name, prefix ):
     

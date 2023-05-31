@@ -46,6 +46,12 @@ class BasePruneCallback(keras.callbacks.Callback):
         
     def get_num_epochs(self):
         return self.num_epochs
+    
+    def update_neuron(self):
+        rng = np.random.default_rng()
+        data = rng.choice(self.train_img,32)
+        self.pn.update_neuron_frequency(data)
+    
 
 class CNNCallback(BasePruneCallback):
     def __init__(self, model, train_img, prune_start_at_acc,
@@ -102,12 +108,7 @@ class CNNCallback(BasePruneCallback):
         
         #svd_plots.ConvertToEps(self.plot_dir)
         self.lh.reset_svd()
-        
-    def __update_neuron(self):
-        rng = np.random.default_rng()
-        data = rng.choice(self.train_img,32)
-        self.pn.update_neuron_frequency(data, "cnn")
-        
+            
     def __log_prune_tb(self, epoch):
         (total_trainable_wts,
          total_pruned_wts,prune_pct) = self.pn.get_prune_summary()
@@ -146,7 +147,7 @@ class CNNCallback(BasePruneCallback):
             return
         
         if self.pn.neuron_update_flag() == True:
-            self.__update_neuron()
+            self.update_neuron()
             
         accuracy = logs["accuracy"]
         if accuracy < self.prune_start_at_acc:
@@ -166,7 +167,7 @@ class CNNCallback(BasePruneCallback):
 
 
 class CIPCallback(BasePruneCallback):
-    def __init__(self, model, prune_start_at_acc,
+    def __init__(self, model, train_img, prune_start_at_acc,
                  num_pruning, final_acc, prune_pct, neuron_update,
                  pruning_type, reset_neuron, log_handler ):
         super(CIPCallback, self).__init__(model, prune_pct, 
@@ -174,6 +175,7 @@ class CIPCallback(BasePruneCallback):
                                           log_handler)
         """ Save params in constructor
         """
+        self.train_img = train_img
         self.prune_start_at_acc = prune_start_at_acc
         self.num_pruning = num_pruning
         self.prune_acc_interval = 0
@@ -238,6 +240,9 @@ class CIPCallback(BasePruneCallback):
     def on_epoch_end(self, epoch, logs=None):
         super(CIPCallback, self).on_epoch_end(epoch, logs)
         accuracy = logs["accuracy"]
+        
+        if self.pn.neuron_update_flag() == True:
+            self.update_neuron()
         
         if self.pruning_done == True:
             if accuracy >= self.final_acc:

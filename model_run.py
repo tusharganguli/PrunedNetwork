@@ -187,6 +187,7 @@ class ModelRun():
         
         
         pruning_cb = pc.CIPCallback(model,
+                                    self.train_img,
                                     prune_start_at_acc,
                                     num_pruning,    final_acc,
                                     prune_pct,      neuron_update,
@@ -234,6 +235,71 @@ class ModelRun():
                          num_epochs, prune_pct_achieved )
 
     
+    def evaluate_fully_dense(self, run_type, 
+                     prune_start_at_acc,
+                     num_pruning,
+                     final_acc,
+                     prune_pct,
+                     neuron_update,
+                     pruning_type,
+                     reset_neuron,
+                     early_stopping_delta,
+                     log_handler,
+                     num_layers,
+                     num_neurons):
+        
+        tf.keras.backend.clear_session()
+        model = self.create_fully_dense_model(run_type, num_layers, num_neurons)
+        
+        
+        pruning_cb = pc.CIPCallback(model,
+                                    self.train_img,
+                                    prune_start_at_acc,
+                                    num_pruning,    final_acc,
+                                    prune_pct,      neuron_update,
+                                    pruning_type,   reset_neuron,
+                                    log_handler
+                                    )
+        
+        model.compile(optimizer=self.optimizer, 
+                      loss=self.loss,
+                      metrics=[self.acc_metrics,self.top1_metrics, 
+                               self.top5_metrics], 
+                      run_eagerly=True)
+        
+        stop_cb = pc.StopCallback(final_acc)
+        
+        tb_log_filename = log_handler.get_tensorboard_dir()
+        tensorboard_cb = keras.callbacks.TensorBoard(tb_log_filename)
+        
+        # simple early stopping
+        #es_cb = EarlyStopping(monitor='val_loss', mode='min', verbose=1, patience=20)
+        es_cb = pc.EarlyStoppingCallback(delta=early_stopping_delta, 
+                                         verbose=1)
+        #prune_model_name = self.get_modelname() #+ ".h5"
+        #mc_cb = ModelCheckpoint(prune_model_name, monitor='val_accuracy', 
+        #                        mode='max', verbose=1, save_best_only=True)
+        
+        history = model.fit(self.train_img, 
+                            self.train_labels, 
+                            epochs=self.epochs,
+                            validation_data=(self.valid_img,self.valid_labels),
+                            callbacks=[es_cb, stop_cb, 
+                                       pruning_cb, tensorboard_cb])
+        
+        self.model = model
+        
+        num_epochs = stop_cb.get_num_epochs()
+        eval_result = model.evaluate(self.test_img,self.test_labels)
+        
+        (total_trainable_wts,
+        total_pruned_wts,prune_pct_achieved) = self.__generate_model_summary(model)
+        prune_pct_achieved = prune_pct_achieved.numpy()
+        del model
+        
+        log_handler.log_data(run_type, history, eval_result, 
+                         num_epochs, prune_pct_achieved )
+
     def prune_trained_model(self, run_type, prune_start_at_acc, 
                             trained_model, num_pruning, final_acc, 
                             prune_pct, neuron_update, pruning_type, 
@@ -591,7 +657,25 @@ class ModelRun():
             model = keras.models.Model(inputs=input_layer,outputs=output_layer)
         return model
         
+    def create_fully_dense_model(self,run_type, num_layers, num_neurons=300):
         
+        input_layer = keras.Input(shape=(28,28), name="input")
+        flatten = keras.layers.Flatten(name="flatten")(input_layer)
+        prev_layer = flatten
+        for idx in range(num_layers):
+            layer_name = "dense_" + str(idx)
+            curr_layer = keras.layers.Dense(num_neurons,activation=tf.nn.relu, 
+                                     name=layer_name )(prev_layer)
+            prev_layer = curr_layer
+            
+        output_layer = keras.layers.Dense(10, activation=tf.nn.softmax, 
+                                          name="output")(curr_layer)
+        
+        if run_type != "standard":
+            model = cmod.CustomModel(inputs=input_layer,outputs=output_layer)
+        else:
+            model = keras.models.Model(inputs=input_layer,outputs=output_layer)
+        return model
         
         
         

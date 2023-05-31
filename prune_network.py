@@ -120,19 +120,19 @@ class PruneNetwork:
     def enable_pruning(self):
         self.model.enable_pruning()
     
-    def update_neuron_frequency(self,data, nw_type):
+    def update_neuron_frequency(self,data):
         idx = 0
         activations = self.activation_model(data)
         for activation_data in activations:
             #self.__update_neuron(idx,activation_data)
             act_dim = activation_data.shape
             if tf.size(act_dim) == 4: # conv layer
-                #activation_sum = tf.reduce_sum(activation_data, [0,1,2])
-                activation_mean = tf.reduce_mean(activation_data, axis=[0,1,2])
+                activation_sum = tf.reduce_sum(activation_data, [0,1,2])
+                #activation_mean = tf.reduce_mean(activation_data, axis=[0,1,2])
             else:
-                #activation_sum = tf.reduce_sum(activation_data, [0])
-                activation_mean = tf.reduce_mean(activation_data, axis=[0])
-            self.activation_lst[idx] = tf.add(self.activation_lst[idx], activation_mean)
+                activation_sum = tf.reduce_sum(activation_data, [0])
+                #activation_mean = tf.reduce_mean(activation_data, axis=[0])
+            self.activation_lst[idx] = tf.add(self.activation_lst[idx], activation_sum)
             idx += 1
 
     def prune_cnn(self, pruning_pct, pruning_type):

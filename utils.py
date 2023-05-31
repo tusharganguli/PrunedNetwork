@@ -330,7 +330,7 @@ def get_time():
 def get_num_layers(model):
     layer_cnt = 0
     for layer in model.layers:
-        if not isinstance(layer,keras.layers.Dense):
+        if not isinstance(layer,keras.layers.Dense) or "dense" not in layer.name:
             continue
         layer_cnt += 1
     return layer_cnt

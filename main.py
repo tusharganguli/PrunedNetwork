@@ -58,6 +58,117 @@ def generate_tb_data():
 #generate_tb_data()
 
 
+def prune_network(nw_type):
+    """
+    Evaluates pruning after reaching specific training accuracy 
+    for each stage of pruning    
+
+    Returns
+    -------
+    None.
+
+    """
+    log_dir = nw_type
+    model_run = mr.ModelRun(db)
+    
+    log_handler = utils.LogHandler(log_dir, tensorboard_dir, prune_dir, 
+                               model_dir, plot_dir)
+    
+    prune_start_at = 80/100
+    p_pct = 70
+    n_pruning = 2
+    f_acc = 92/100
+    #r_neuron = False
+    delta = 0.1
+    
+    # neuron_update: ctr,act,act_acc
+    #n_update = "act"
+    # pruning_type: neuron, neuron_wts
+    #p_type = "neuron"
+    
+    neuron_update_type = "ctr"#,"act","act_acc"]
+    prune_type = "neuron_wts"#["neuron","neuron_wts"]
+    r_neuron = False
+    
+        
+    model_name = nw_type 
+    #model_name += "_PruneStart_" + str(prune_start_at)
+    model_name += "_NumPruning_" + str(n_pruning)
+    model_name += "_PrunePct_" + str(p_pct)
+    #model_name += "_FinalAcc_" + str(f_acc)
+    model_name += "_NeuronUpdate_" + neuron_update_type
+    model_name += "_PruningType_" + prune_type
+    if r_neuron == True:
+        model_name += "_ResetNeuron"
+    model_name += "_EarlyStopping_" + str(delta)
+    
+    model_name = utils.add_time_to_filename(model_name)
+    
+    log_handler.set_log_filename(model_name)
+    
+    #model_run.set_log_handler(log_handler)
+    
+    if nw_type == "prune_fully_dense_network":
+        num_layers = 4
+        num_neurons = 300
+        model_run.evaluate_fully_dense(run_type=nw_type, 
+                               prune_start_at_acc = prune_start_at,
+                               num_pruning = n_pruning,
+                               final_acc = f_acc,
+                               prune_pct = p_pct,
+                               neuron_update = neuron_update_type,
+                               pruning_type = prune_type,
+                               reset_neuron = r_neuron,
+                               early_stopping_delta=delta,
+                               log_handler = log_handler,
+                               num_layers = num_layers,
+                               num_neurons = num_neurons)
+    elif nw_type == "cip":
+        model_run.evaluate_cip(run_type=nw_type, 
+                               prune_start_at_acc = prune_start_at,
+                               num_pruning = n_pruning,
+                               final_acc = f_acc,
+                               prune_pct = p_pct,
+                               neuron_update = neuron_update_type,
+                               pruning_type = prune_type,
+                               reset_neuron = r_neuron,
+                               early_stopping_delta=delta,
+                               log_handler = log_handler)
+        
+    log_handler.log_single_run(model_name)
+    
+    prune_model_name = log_handler.get_modelname()
+    model_run.save_model(prune_model_name)
+            
+    prune_filename = utils.add_time_to_filename("prune_details")
+    log_handler.set_log_filename(prune_filename)
+    log_handler.write_to_file(prune_filename)
+    del model_run
+
+#nw_type = "prune_fully_dense_network"
+nw_type = "cip"
+#prune_network(nw_type)
+
+def heatmap():
+    matrix_heatmap_dir = root_log_dir+ "/matrix_heatmap/"
+    if not os.path.exists(matrix_heatmap_dir):
+        os.makedirs(matrix_heatmap_dir)
+    
+    dir_lst = []
+    dir_lst.append(root_log_dir + "/standard/model/standard_2022_08_15-23_23_02")
+    dir_lst.append(root_log_dir+ "/cip/model/cip_NumPruning_2_PrunePct_70_NeuronUpdate_ctr_PruningType_neuron_wts_EarlyStopping_0.1_2023_05_30-20_19_09")
+    dir_lst.append(root_log_dir + "/prune_fully_dense_network/model/prune_fully_dense_network_NumPruning_2_PrunePct_70_NeuronUpdate_ctr_PruningType_neuron_wts_EarlyStopping_0.1_2023_05_30-19_34_03")        
+    
+    title_lst = []
+    title_lst.append("Standard")
+    title_lst.append("cip")
+    title_lst.append("Fully Dense")
+    
+    prefix = "pruned"
+    
+    gp.generate_matrix_heatmap(dir_lst,title_lst, matrix_heatmap_dir, prefix)
+
+#heatmap()
 
 std_full_dense_dir = model_dir + "/standard_full_dense"
 std_dir = model_dir + "/standard"
@@ -166,7 +277,7 @@ def cnn_pruning():
     log_handler.write_to_file(prune_filename)
     del model_run
 
-cnn_pruning()
+#cnn_pruning()
 
 def cip_pruning():
     """
