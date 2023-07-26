@@ -57,97 +57,89 @@ def generate_tb_data():
     
 #generate_tb_data()
 
+def get_rank(model,df):
+    
+    for layer in model.layers:
+        if not isinstance(layer,keras.layers.Dense) or layer.name == "output":
+            continue
+        wts = layer.weights
+        rank = np.linalg.matrix_rank(wts[0])    
+        df[layer.name] = rank
+    return df
 
-def prune_network(nw_type):
-    """
-    Evaluates pruning after reaching specific training accuracy 
-    for each stage of pruning    
+def eval_pca(std_wts,row):
+    from sklearn.decomposition import PCA
+    
+    low_rank_wts = []
+    idx = 0
+    for idx in range(0,len(row)):
+        # Apply PCA to find the principal components
+        rank = int(row[idx])
+        pca = PCA(n_components=rank)
+        pca.fit(std_wts[idx])
+        # Transform the data using the selected principal components
+        approximation = pca.transform(std_wts[idx])
+        # Reconstruct the matrix using the reduced number of principal components
+        reconstructed_wts = pca.inverse_transform(approximation)
+        low_rank_wts.append(reconstructed_wts)
+    return low_rank_wts
 
-    Returns
-    -------
-    None.
-
-    """
-    log_dir = nw_type
-    model_run = mr.ModelRun(db)
+def evaluate_models(df, std_model, model, low_rank_wts, test_img, test_labels):
+    idx = 0
+    for layer in std_model.layers:
+        if not isinstance(layer, keras.layers.Dense) or layer.name == "output":
+            continue
+        wts = low_rank_wts[idx]
+        idx += 1
+        layer_wts = layer.get_weights()
+        layer_wts[0] = wts
+        layer.set_weights(layer_wts)
+    eval_result = std_model.evaluate(test_img,test_labels)
+    df["Standard Low Rank Model-Loss"] = eval_result[0]
+    df["Standard Low Rank Model-Accuracy"] = eval_result[1]
+    df["Standard Low Rank Model-Top1"] = eval_result[2]
+    df["Standard Low Rank Model-Top5"] = eval_result[3]
     
-    log_handler = utils.LogHandler(log_dir, tensorboard_dir, prune_dir, 
-                               model_dir, plot_dir)
+    eval_result = model.evaluate(test_img,test_labels)
+    df["Model-Loss"] = eval_result[0]
+    df["Model-Accuracy"] = eval_result[1]
+    df["Model-Top1"] = eval_result[2]
+    df["Model-Top5"] = eval_result[3]
     
-    prune_start_at = 80/100
-    p_pct = 70
-    n_pruning = 2
-    f_acc = 92/100
-    #r_neuron = False
-    delta = 0.1
+    return df
     
-    # neuron_update: ctr,act,act_acc
-    #n_update = "act"
-    # pruning_type: neuron, neuron_wts
-    #p_type = "neuron"
+def evaluate_lowrank():
+    pca_model_dir = "/home/tushar/datadrive/Spyder/NetworkPruning/PrunedNetwork/LogDir/pca/models"
     
-    neuron_update_type = "ctr"#,"act","act_acc"]
-    prune_type = "neuron_wts"#["neuron","neuron_wts"]
-    r_neuron = False
+    # get the weghts of the standard model
+    std_dir = pca_model_dir + "/standard_2022_08_15-23_23_02"
+    std_model = keras.models.load_model(std_dir)
+    std_wts = [layer.get_weights()[0] for layer in std_model.layers if isinstance(layer, keras.layers.Dense) and layer.name != "output"]
     
-        
-    model_name = nw_type 
-    #model_name += "_PruneStart_" + str(prune_start_at)
-    model_name += "_NumPruning_" + str(n_pruning)
-    model_name += "_PrunePct_" + str(p_pct)
-    #model_name += "_FinalAcc_" + str(f_acc)
-    model_name += "_NeuronUpdate_" + neuron_update_type
-    model_name += "_PruningType_" + prune_type
-    if r_neuron == True:
-        model_name += "_ResetNeuron"
-    model_name += "_EarlyStopping_" + str(delta)
+    cwd = os.getcwd()
+    os.chdir(pca_model_dir)
+    idx = 0
+    df = pd.DataFrame(columns=["Model"])
     
-    model_name = utils.add_time_to_filename(model_name)
+    data_obj = data.Data(db)
+    (train_img,valid_img,test_img,
+     train_labels,valid_labels,test_labels) = data_obj.load_data()
     
-    log_handler.set_log_filename(model_name)
+    for m_dir in glob.glob("*"):
+        df_new = pd.DataFrame([[m_dir]],columns=["Model"])
+        model = keras.models.load_model(m_dir)
+        df_new = get_rank(model,df_new)
+        low_rank_wts = eval_pca(std_wts,df_new.iloc[-1][1:])
+        df_new = evaluate_models(df_new, std_model, model, 
+                                 low_rank_wts, test_img, test_labels)
+        df = pd.concat([df,df_new])
+    os.chdir(cwd)
+    return df
     
-    #model_run.set_log_handler(log_handler)
-    
-    if nw_type == "prune_fully_dense_network":
-        num_layers = 4
-        num_neurons = 300
-        model_run.evaluate_fully_dense(run_type=nw_type, 
-                               prune_start_at_acc = prune_start_at,
-                               num_pruning = n_pruning,
-                               final_acc = f_acc,
-                               prune_pct = p_pct,
-                               neuron_update = neuron_update_type,
-                               pruning_type = prune_type,
-                               reset_neuron = r_neuron,
-                               early_stopping_delta=delta,
-                               log_handler = log_handler,
-                               num_layers = num_layers,
-                               num_neurons = num_neurons)
-    elif nw_type == "cip":
-        model_run.evaluate_cip(run_type=nw_type, 
-                               prune_start_at_acc = prune_start_at,
-                               num_pruning = n_pruning,
-                               final_acc = f_acc,
-                               prune_pct = p_pct,
-                               neuron_update = neuron_update_type,
-                               pruning_type = prune_type,
-                               reset_neuron = r_neuron,
-                               early_stopping_delta=delta,
-                               log_handler = log_handler)
-        
-    log_handler.log_single_run(model_name)
-    
-    prune_model_name = log_handler.get_modelname()
-    model_run.save_model(prune_model_name)
-            
-    prune_filename = utils.add_time_to_filename("prune_details")
-    log_handler.set_log_filename(prune_filename)
-    log_handler.write_to_file(prune_filename)
-    del model_run
-
-#nw_type = "prune_fully_dense_network"
-nw_type = "cip"
-#prune_network(nw_type)
+pca_dir = "/home/tushar/datadrive/Spyder/NetworkPruning/PrunedNetwork/LogDir/pca"
+filename = pca_dir + "/result.xlsx"
+df = evaluate_lowrank()
+df.to_excel(filename, index=False)
 
 def heatmap():
     matrix_heatmap_dir = root_log_dir+ "/matrix_heatmap/"
@@ -204,80 +196,37 @@ def train_standard():
 
 #train_standard()
 
-def cnn_pruning():
-    """
-    Evaluates pruning after reaching specific training accuracy 
-    for each stage of pruning    
 
-    Returns
-    -------
-    None.
-
-    """
-    #data.Data.load_disk = classmethod(data.Data.load_disk)
-    #data.Data.load_disk()
-    
-    log_dir = "cnn"
+def train_standard_with_regularization():
+    log_dir = "standard_with_regularization"
     model_run = mr.ModelRun(db)
     
     log_handler = utils.LogHandler(log_dir, tensorboard_dir, prune_dir, 
-                               model_dir, plot_dir)
+                                   model_dir, plot_dir)
     
-    prune_start_at = 80/100
-    n_pruning = 3
-    f_acc = 98/100
-    prune_pct = 80
-    #r_neuron = False
-    delta = 0.1
-    
-    # neuron_update: ctr,act,act_acc
-    #n_update = "act"
-    # pruning_type: neuron, neuron_wts
-    #p_type = "neuron"
-    
-    neuron_update = "act"
-    prune_type = "neuron"
-    reset_neuron = False
-    
-    model_name = "cnn" 
-    #model_name += "_PruneStart_" + str(prune_start_at)
-    model_name += "_NumPruning_" + str(n_pruning)
-    model_name += "_PrunePct_" + str(prune_pct)
-    #model_name += "_FinalAcc_" + str(f_acc)
-    model_name += "_NeuronUpdate_" + neuron_update
-    model_name += "_PruningType_" + prune_type
-    if reset_neuron == True:
-        model_name += "_ResetNeuron"
-    model_name += "_EarlyStopping_" + str(delta)
-    
+    model_name = "standard_with_regularization"
     model_name = utils.add_time_to_filename(model_name)
-    
     log_handler.set_log_filename(model_name)
     
-    #model_run.set_log_handler(log_handler)
+    #neuron_lst = [300,300,300]
+    #model = model_run.create_full_dense_model("standard",neuron_lst)
     
-    model_run.evaluate_cnn(run_type="cnn", 
-                        prune_start_at_acc = prune_start_at,
-                        num_pruning = n_pruning,
-                        final_acc = f_acc,
-                        prune_pct = prune_pct,
-                        neuron_update = neuron_update,
-                        pruning_type = prune_type,
-                        reset_neuron = reset_neuron,
-                        early_stopping_delta=delta,
-                        log_handler = log_handler)
+    model_run.evaluate_standard_with_regularizer(run_type="standard_with_regularization",
+                                num_runs=run_cnt, 
+                                final_acc = f_acc,
+                                es_delta = 0.1,
+                                log_handler = log_handler)
     
-    #log_handler.log_single_run(model_name)
-    
-    prune_model_name = log_handler.get_modelname()
-    model_run.save_model(prune_model_name)
+    std_model_name = log_handler.get_modelname()
+    model_run.save_model(std_model_name)
     
     prune_filename = utils.add_time_to_filename("prune_details")
     log_handler.set_log_filename(prune_filename)
     log_handler.write_to_file(prune_filename)
     del model_run
 
-#cnn_pruning()
+#train_standard_with_regularization()
+
 
 def cip_pruning():
     """
@@ -307,13 +256,12 @@ def cip_pruning():
     # pruning_type: neuron, neuron_wts
     #p_type = "neuron"
     
-    neuron_update_lst = ["ctr","act","act_acc"]
+    #neuron_update_lst = ["ctr","act","act_acc"]
     prune_type_lst = ["neuron","neuron_wts"]
     reset_neuron_lst = [False]
     
     for r_neuron in reset_neuron_lst:
         for n_pruning in n_pruning_lst:
-            for n_update in neuron_update_lst:
                 for p_type in prune_type_lst:
                     for p_pct in prune_pct_lst:
                         model_name = "cip" 
@@ -321,7 +269,7 @@ def cip_pruning():
                         model_name += "_NumPruning_" + str(n_pruning)
                         model_name += "_PrunePct_" + str(p_pct)
                         #model_name += "_FinalAcc_" + str(f_acc)
-                        model_name += "_NeuronUpdate_" + n_update
+                        #model_name += "_NeuronUpdate_" + n_update
                         model_name += "_PruningType_" + p_type
                         if r_neuron == True:
                             model_name += "_ResetNeuron"
@@ -338,7 +286,7 @@ def cip_pruning():
                                                num_pruning = n_pruning,
                                                final_acc = f_acc,
                                                prune_pct = p_pct,
-                                               neuron_update = n_update,
+                                               neuron_update = "ctr",
                                                pruning_type = p_type,
                                                reset_neuron = r_neuron,
                                                early_stopping_delta=delta,
@@ -702,179 +650,169 @@ filename = model_dir + ".xlsx"
 #model_rank(model_dir, filename)
 
 
-"""
-num_runs: total number of times the model will run to generate an average result
-pruning_type : different types of pruning to be carried out
-training_accuracy : Final training accuracy to achieve
-pruning_pct : Percent of remaining weights to be pruned
-pruning_change : delta to add to the percent of pruning weights to be 
-                pruned in the next iteration
-prune_accuracy_threshold : Pruning to be started after reaching this training accuracy
-prune_freq : Once accuracy is achieved, how many epochs later will the pruning start
-neuron_ctr_start_at_acc : Neuron frequency update to start after reaching this training accuracy
-restart_neuron_count : Reset the neuron counter after pruning
-"""
+def cnn_pruning():
+    """
+    Evaluates pruning after reaching specific training accuracy 
+    for each stage of pruning    
 
+    Returns
+    -------
+    None.
 
-def optimal_pruning():
-
-    tensorboard_dir = "optimal_results"
-    prune_dir = "optimal_prune_details"
-    model = mr.ModelRun(db,tensorboard_dir, prune_dir)
+    """
+    #data.Data.load_disk = classmethod(data.Data.load_disk)
+    #data.Data.load_disk()
     
-      
-    n_pruning = [2,4,6,8,10]
-    n_intervals = [2,10,20]
-    reset_type = [True,False]
+    log_dir = "cnn"
+    model_run = mr.ModelRun(db)
     
-    for r_idx in reset_type:
-        for n_idx in n_intervals:
-            for p_idx in n_pruning:
-                model.evaluate_optimal_pruning(run_type="optimal",
-                                               num_runs=run_cnt, 
-                                               pruning_type="avg_freq",
-                                               final_training_accuracy = 98/100,
-                                               epoch_pruning_interval = n_idx,
-                                               num_pruning = p_idx,
-                                               reset_neuron_count = r_idx)
+    log_handler = utils.LogHandler(log_dir, tensorboard_dir, prune_dir, 
+                               model_dir, plot_dir)
+    
+    prune_start_at = 80/100
+    n_pruning = 3
+    f_acc = 98/100
+    prune_pct = 80
+    #r_neuron = False
+    delta = 0.1
+    
+    # neuron_update: ctr,act,act_acc
+    #n_update = "act"
+    # pruning_type: neuron, neuron_wts
+    #p_type = "neuron"
+    
+    neuron_update = "act"
+    prune_type = "neuron"
+    reset_neuron = False
+    
+    model_name = "cnn" 
+    #model_name += "_PruneStart_" + str(prune_start_at)
+    model_name += "_NumPruning_" + str(n_pruning)
+    model_name += "_PrunePct_" + str(prune_pct)
+    #model_name += "_FinalAcc_" + str(f_acc)
+    model_name += "_NeuronUpdate_" + neuron_update
+    model_name += "_PruningType_" + prune_type
+    if reset_neuron == True:
+        model_name += "_ResetNeuron"
+    model_name += "_EarlyStopping_" + str(delta)
+    
+    model_name = utils.add_time_to_filename(model_name)
+    
+    log_handler.set_log_filename(model_name)
+    
+    #model_run.set_log_handler(log_handler)
+    
+    model_run.evaluate_cnn(run_type="cnn", 
+                        prune_start_at_acc = prune_start_at,
+                        num_pruning = n_pruning,
+                        final_acc = f_acc,
+                        prune_pct = prune_pct,
+                        neuron_update = neuron_update,
+                        pruning_type = prune_type,
+                        reset_neuron = reset_neuron,
+                        early_stopping_delta=delta,
+                        log_handler = log_handler)
+    
+    #log_handler.log_single_run(model_name)
+    
+    prune_model_name = log_handler.get_modelname()
+    model_run.save_model(prune_model_name)
+    
+    prune_filename = utils.add_time_to_filename("prune_details")
+    log_handler.set_log_filename(prune_filename)
+    log_handler.write_to_file(prune_filename)
+    del model_run
+
+#cnn_pruning()
+
+def prune_fully_dense(nw_type):
+    """
+    Evaluates pruning after reaching specific training accuracy 
+    for each stage of pruning    
+
+    Returns
+    -------
+    None.
+
+    """
+    log_dir = nw_type
+    model_run = mr.ModelRun(db)
+    
+    log_handler = utils.LogHandler(log_dir, tensorboard_dir, prune_dir, 
+                               model_dir, plot_dir)
+    
+    prune_start_at = 80/100
+    p_pct = 70
+    n_pruning = 2
+    f_acc = 92/100
+    #r_neuron = False
+    delta = 0.1
+    
+    # neuron_update: ctr,act,act_acc
+    #n_update = "act"
+    # pruning_type: neuron, neuron_wts
+    #p_type = "neuron"
+    
+    neuron_update_type = "ctr"#,"act","act_acc"]
+    prune_type = "neuron_wts"#["neuron","neuron_wts"]
+    r_neuron = False
+    
+        
+    model_name = nw_type 
+    #model_name += "_PruneStart_" + str(prune_start_at)
+    model_name += "_NumPruning_" + str(n_pruning)
+    model_name += "_PrunePct_" + str(p_pct)
+    #model_name += "_FinalAcc_" + str(f_acc)
+    model_name += "_NeuronUpdate_" + neuron_update_type
+    model_name += "_PruningType_" + prune_type
+    if r_neuron == True:
+        model_name += "_ResetNeuron"
+    model_name += "_EarlyStopping_" + str(delta)
+    
+    model_name = utils.add_time_to_filename(model_name)
+    
+    log_handler.set_log_filename(model_name)
+    
+    #model_run.set_log_handler(log_handler)
+    
+    if nw_type == "prune_fully_dense_network":
+        num_layers = 4
+        num_neurons = 300
+        model_run.evaluate_fully_dense(run_type=nw_type, 
+                               prune_start_at_acc = prune_start_at,
+                               num_pruning = n_pruning,
+                               final_acc = f_acc,
+                               prune_pct = p_pct,
+                               neuron_update = neuron_update_type,
+                               pruning_type = prune_type,
+                               reset_neuron = r_neuron,
+                               early_stopping_delta=delta,
+                               log_handler = log_handler,
+                               num_layers = num_layers,
+                               num_neurons = num_neurons)
+    elif nw_type == "cip":
+        model_run.evaluate_cip(run_type=nw_type, 
+                               prune_start_at_acc = prune_start_at,
+                               num_pruning = n_pruning,
+                               final_acc = f_acc,
+                               prune_pct = p_pct,
+                               neuron_update = neuron_update_type,
+                               pruning_type = prune_type,
+                               reset_neuron = r_neuron,
+                               early_stopping_delta=delta,
+                               log_handler = log_handler)
+        
+    log_handler.log_single_run(model_name)
+    
+    prune_model_name = log_handler.get_modelname()
+    model_run.save_model(prune_model_name)
             
-        
-        
-        model.evaluate_optimal_pruning(run_type="optimal",
-                                           num_runs=run_cnt, 
-                                           pruning_type="avg_freq",
-                                           final_training_accuracy = 98/100,
-                                           epoch_pruning_interval = 40,
-                                           num_pruning = 3,
-                                           reset_neuron_count = r_idx)
-    
-    model.write_to_file(filename = "Results_OptimalPruning.xls")
+    prune_filename = utils.add_time_to_filename("prune_details")
+    log_handler.set_log_filename(prune_filename)
+    log_handler.write_to_file(prune_filename)
+    del model_run
 
-""" 
-import tempfile
-tensorboard_dir = tempfile.mkdtemp()
-prune_dir = tempfile.mkdtemp()
-model = mr.ModelRun(db,tensorboard_dir, prune_dir)
-
-result = model.evaluate_low_rank_approx(std_model, cip_model)  
-"""
-
-"""
-Evaluates one time pruning
-"""
-"""
-tensorboard_dir = "otp_results"
-prune_dir = "otp_prune_details"
-model = mr.ModelRun(db,tensorboard_dir, prune_dir)
-one_time_neuron_update = 1
-"""
-"""
-model.evaluate_otp(run_type="otp", 
-                   num_runs=run_cnt, 
-                   pruning_type="weights",
-                   neuron_update_at_acc = 85/100,
-                   target_prune_pct=90,
-                   prune_at_accuracy=90/100,
-                   final_training_accuracy = t_acc
-                   )
-
-
-"""
-"""
-# neuron update from beginning
-for tp_pct in [70,80,90]:
-    for p_at_acc in range(90,98,2):
-        model.evaluate_otp(run_type="otp", 
-                           num_runs=run_cnt, 
-                           pruning_type="weights",
-                           neuron_update_at_acc = 5/100,
-                           target_prune_pct=tp_pct,
-                           prune_at_accuracy=p_at_acc/100,
-                           final_training_accuracy = t_acc
-                           )
-
-model.write_to_file(filename = "OTP_EarlyNeuronUpdatePruning90AndMore.xls")
-
-# neuron update later
-for tp_pct in [70,80,90]:
-    for p_at_acc in range(90,98,2):
-        model.evaluate_otp(run_type="otp", 
-                           num_runs=run_cnt, 
-                           pruning_type="weights",
-                           neuron_update_at_acc = (p_at_acc-5)/100,
-                           target_prune_pct=tp_pct,
-                           prune_at_accuracy=p_at_acc/100,
-                           final_training_accuracy = t_acc
-                           )
-
-model.write_to_file(filename = "OTP_LateNeuronUpdatePruning90AndMore.xls")
-"""
-
-"""
-# pruning weights based on one time update of the neuron frequency
-for tp_pct in [70,80,90]:
-    for p_at_acc in range(95,15,-10):
-        model.evaluate_otp(run_type="otp", 
-                           num_runs=run_cnt, 
-                           pruning_type="weights",
-                           neuron_update_at_acc = one_time_neuron_update,
-                           target_prune_pct=tp_pct,
-                           prune_at_accuracy=p_at_acc/100,
-                           final_training_accuracy = t_acc)
-model.write_to_file(filename = "OTP_OneTimeNeuronUpdate.xls")
-"""      
-
-"""
-model = mr.ModelRun(db,"results")
-
-
-model.evaluate("standard",epochs=epoch_cnt, num_layers=layer_cnt,
-               num_runs=run_cnt, pruning_type="none")
-
-start_pruning_pct = 10
-end_pruning_pct = 30
-pruning_pct_step = 5
-
-start_prune_accuracy = 65
-end_prune_accuracy = 100
-prune_accuracy_step = 10
-
-
-for pct in range(start_pruning_pct,end_pruning_pct,pruning_pct_step):
-        for prune_acc in range(start_prune_accuracy,end_prune_accuracy,prune_accuracy_step):
-            model.evaluate("sparse",epochs=epoch_cnt, num_layers=layer_cnt, 
-                           num_runs=run_cnt, pruning_type="weights",
-                           pruning_pct=pct, pruning_change=0,
-                           prune_accuracy_threshold=prune_acc/100,
-                           prune_freq=prune_freq)
-
-model.write_to_file(filename = "TrainingResults1.xls")
-
-start_pruning_pct = 0
-pruning_chg = 5
-
-for prune_acc in range(start_prune_accuracy,end_prune_accuracy,prune_accuracy_step):
-    model.evaluate("sparse",epochs=epoch_cnt, num_layers=layer_cnt, 
-                   num_runs=run_cnt, pruning_type="weights",
-                   pruning_pct=start_pruning_pct, 
-                   pruning_change=pruning_chg,
-                   prune_accuracy_threshold=prune_acc/100,
-                   prune_freq=prune_freq)
-
-model.write_to_file(filename = "TrainingResults2.xls")
-
-start_pruning_pct = 30
-pruning_chg = -5
-
-for prune_acc in range(start_prune_accuracy,end_prune_accuracy,prune_accuracy_step):
-    model.evaluate("sparse",epochs=epoch_cnt, num_layers=layer_cnt, 
-                   num_runs=run_cnt, pruning_type="weights",
-                   pruning_pct=start_pruning_pct, 
-                   pruning_change=pruning_chg,
-                   prune_accuracy_threshold=prune_acc/100,
-                   prune_freq=prune_freq)
-
-model.write_to_file(filename = "TrainingResults3.xls")
-
-"""
+#nw_type = "prune_fully_dense_network"
+#nw_type = "cip"
+#prune_network(nw_type)
 

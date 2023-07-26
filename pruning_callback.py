@@ -16,6 +16,25 @@ import prune_network as pn
 import generate_plots as gp
 import utils
 
+regularizer = False
+verify_flag = False
+
+class RegularizerCallback(keras.callbacks.Callback):
+    
+        
+    def __init__(self, loss_function):
+        self.loss_fn = loss_function
+        
+    def __del__(self):
+        del self.loss_fn
+    
+    def on_epoch_end(self, epoch, logs=None):
+        accuracy = logs["accuracy"]
+        if self.loss_fn.regularize == True:
+            self.loss_fn.regularize = False
+        elif accuracy >= 0.7:
+            self.loss_fn.regularize = True
+
 class BasePruneCallback(keras.callbacks.Callback):
     def __init__(self, model, prune_pct, final_acc, reset_neuron,
                  log_handler):

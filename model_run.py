@@ -14,6 +14,48 @@ import data
 import pruning_callback as pc
 import custom_model as cmod
 
+
+
+class CustomLossWithMessages(tf.keras.losses.Loss):
+    def __init__(self, model, name='custom_loss_with_messages', **kwargs):
+        self.regularize = False
+        self.model = model
+        super().__init__(name=name,**kwargs)
+        
+    def call(self, y_true, y_pred):
+        main_loss = tf.keras.losses.sparse_categorical_crossentropy(y_true, y_pred)
+        # Conditionally apply the custom regularizer at specific training steps
+        if self.regularize == True:
+            # Calculate the regularizer term for each layer and sum them up
+            regularization_loss = sum(self.singular_value_regularizer(layer.kernel) for layer in self.model.layers if isinstance(layer, tf.keras.layers.Dense))
+            #regularization_loss = 0
+            # Combine the regularization loss with the main loss (categorical cross-entropy)
+            lambda_value = 1
+            main_loss += lambda_value * regularization_loss
+            #main_loss = 1000
+        return main_loss
+     
+    def get_config(self):
+        config = {
+            'regularize': self.regularize
+        }
+        base_config = super().get_config()
+        return {**base_config, **config}   
+    
+    # Define your custom regularizer function
+    def singular_value_regularizer(self,weight_matrix):
+        # Calculate the singular values of the weight matrix
+        singular_values = tf.linalg.svd(weight_matrix, compute_uv=False)
+        #tf.print(singular_values.shape[0])
+        start_value = 1
+        end_value = singular_values.shape[0]
+        step = 1
+        weights = tf.range(start_value, end_value+step, step, dtype=tf.float32)
+        weighted_sv = tf.multiply(singular_values,weights)
+        # Return the sum of singular values as the regularization term
+        return tf.reduce_sum(weighted_sv)
+
+
 class ModelRun():
     
     def __init__(self,data_set):
@@ -106,7 +148,89 @@ class ModelRun():
         del model
         log_handler.log_data(run_type, history, eval_result, 
                          num_epochs )
+    
+    
+    def evaluate_standard_with_regularizer(self, run_type, 
+                          num_runs, final_acc, 
+                          es_delta, log_handler):
+        
+        
+        tf.keras.backend.clear_session()
+        model = self.create_regularizer_model()
+        
+        stop_cb = pc.StopCallback(final_acc)
+        es_cb = pc.EarlyStoppingCallback(delta=es_delta, 
+                                         verbose=1)
+        
+        tb_log_filename = log_handler.get_tensorboard_dir()
+        tensorboard_cb = keras.callbacks.TensorBoard(tb_log_filename)
+        
+        # Create an instance of the custom loss class
+        self.loss_function = CustomLossWithMessages(model)
+    
+        reg_cb = pc.RegularizerCallback(self.loss_function)
+        
+        
+        model.compile(optimizer=self.optimizer, loss=self.loss_function, 
+                      metrics=[self.acc_metrics,self.top1_metrics, 
+                               self.top5_metrics], run_eagerly=True)
+        
+        
+        history = model.fit(self.train_img, self.train_labels, 
+                            epochs=self.epochs,
+                            validation_data=(self.valid_img,self.valid_labels),
+                            callbacks=[es_cb, stop_cb,tensorboard_cb, reg_cb])
+        
+        self.model = model
+        
+        num_epochs = stop_cb.get_num_epochs()
+        eval_result = model.evaluate(self.test_img,self.test_labels)
+        
+        del model
+        log_handler.log_data(run_type, history, eval_result, 
+                         num_epochs )
 
+    
+    # Define a function to conditionally apply the regularizer based on training steps
+    def custom_loss_with_arg(self, model):
+        def custom_loss(y_true, y_pred):
+            # Conditionally apply the custom regularizer at specific training steps
+            if pc.regularizer == True:
+                pc.verify_flag = True
+                # Calculate the regularizer term for each layer and sum them up
+                regularization_loss = sum(self.singular_value_regularizer(layer.kernel) for layer in model.layers if isinstance(layer, tf.keras.layers.Dense))
+                #regularization_loss = 0
+                # Combine the regularization loss with the main loss (categorical cross-entropy)
+                main_loss = tf.keras.losses.sparse_categorical_crossentropy(y_true, y_pred)
+                lambda_value = 1
+                total_loss = main_loss + lambda_value * regularization_loss
+                return total_loss
+            else:
+                return tf.keras.losses.sparse_categorical_crossentropy(y_true, y_pred)
+        return custom_loss
+
+    def create_regularizer_model(self):
+        
+        
+        input_layer = keras.Input(shape=(28,28), name="input")
+        flatten = keras.layers.Flatten(name="flatten")(input_layer)
+        
+        dense_1 = keras.layers.Dense(300,activation=tf.nn.relu, 
+                                     name="dense_1")(flatten)
+        dense_2 = keras.layers.Dense(200,activation=tf.nn.relu, 
+                                     name="dense_2")(dense_1)
+        dense_3 = keras.layers.Dense(100,activation=tf.nn.relu, 
+                                     name="dense_3")(dense_2)
+        dense_4 = keras.layers.Dense(50,activation=tf.nn.relu, 
+                                     name="dense_4")(dense_3)
+        #dense_5 = keras.layers.Dense(50,activation=tf.nn.relu, 
+        #                             name="dense_5" )(dense_4)
+        output_layer = keras.layers.Dense(10, activation=tf.nn.softmax, 
+                                          name="output")(dense_4)
+        
+        model = keras.models.Model(inputs=input_layer,outputs=output_layer)
+        return model
+    
     def evaluate_cnn(self, run_type, 
                      prune_start_at_acc,
                      num_pruning,
@@ -629,6 +753,7 @@ class ModelRun():
         else:
             model = keras.models.Model(inputs=input_layer,outputs=output_layer)
         return model
+    
     
     def create_full_dense_model(self,run_type, neuron_lst):
         num_layers = len(neuron_lst)

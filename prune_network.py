@@ -101,7 +101,7 @@ class PruneNetwork:
         total_layers = len(layers)
         for idx in range(total_layers):
             if "dense" in layers[idx].name or "conv" in layers[idx].name:
-                zeros = tf.zeros(layers[idx].output.shape[-1],dtype=tf.float32)
+                zeros = tf.zeros(layers[idx].output.shape[-1],dtype=tf.int32)
                 name = layers[idx].name
                 activation_lst.append(zeros)
                 layer_name_lst.append(name)
@@ -129,10 +129,16 @@ class PruneNetwork:
             if tf.size(act_dim) == 4: # conv layer
                 activation_sum = tf.reduce_sum(activation_data, [0,1,2])
                 #activation_mean = tf.reduce_mean(activation_data, axis=[0,1,2])
+                self.activation_lst[idx] = tf.add(self.activation_lst[idx], activation_sum)
             else:
-                activation_sum = tf.reduce_sum(activation_data, [0])
+                #activation_sum = tf.reduce_sum(activation_data, [0])
                 #activation_mean = tf.reduce_mean(activation_data, axis=[0])
-            self.activation_lst[idx] = tf.add(self.activation_lst[idx], activation_sum)
+                condition = tf.equal(activation_data, 0)
+                int_tensor = tf.cast(tf.where(condition, 1, 0), tf.int32)
+                neuron_freq = tf.reduce_sum(int_tensor,axis=0)
+                self.activation_lst[idx] = tf.add(self.activation_lst[idx],neuron_freq)
+                #res_1 = tf.add(self.activation_lst[idx],activation_sum)
+                #self.activation_lst[idx] = tf.where(condition, self.activation_lst[idx],res_1)
             idx += 1
 
     def prune_cnn(self, pruning_pct, pruning_type):
