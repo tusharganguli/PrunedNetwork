@@ -14,10 +14,7 @@ class CustomModel(keras.Model):
         super(CustomModel, self).__init__(inputs,outputs)
         self.neuron_update = False
         self.pruning_flag = False
-        
-    def set_prune_network(self,pn):
-        self.pn = pn
-        
+            
     def train_step(self, data):
         # Unpack the data. Its structure depends on your model and
         # on what you pass to `fit()`.

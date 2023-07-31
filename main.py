@@ -18,6 +18,9 @@ import model_run as mr
 import generate_plots as gp
 import utils
 import data
+import pca_analysis as pa
+
+
 
 db = keras.datasets.fashion_mnist
 f_acc = 0.98
@@ -28,6 +31,41 @@ prune_dir = "prune_details"
 prune_trained_model_dir = model_dir
 train_pruned_model_dir = model_dir
 plot_dir = "plots"
+
+
+def train_lowrank_models(database):
+    import model_run as mr
+    
+    cwd = os.getcwd()
+    os.chdir(pa.lrm_dir)
+    
+    for m_dir in glob.glob("*"):
+        if "standard" in m_dir:
+            continue
+        log_dir = "train_pca"
+        r_type="train_pca"
+        final_acc = 0.98
+        es_delta = 0.1
+        
+        model_run = mr.ModelRun(database)
+        log_handler = utils.LogHandler(log_dir, tensorboard_dir, prune_dir, 
+                                   model_dir, plot_dir)
+        
+        model_name = utils.add_time_to_filename(m_dir)
+        model_name  = "pca_" + model_name
+        log_handler.set_log_filename(model_name)
+        
+        model = keras.models.load_model(m_dir) 
+        
+        model_run.train_pruned_model(r_type,model, final_acc, es_delta, log_handler)
+        model_name = log_handler.get_modelname()
+        model_run.save_model(model_name)
+        
+        del model
+        
+    os.chdir(cwd)
+    
+#train_lowrank_models(db)
 
 # generating the plots after uploading the plots in the 
 # tensorboard dev board
@@ -57,89 +95,63 @@ def generate_tb_data():
     
 #generate_tb_data()
 
-def get_rank(model,df):
-    
-    for layer in model.layers:
-        if not isinstance(layer,keras.layers.Dense) or layer.name == "output":
-            continue
-        wts = layer.weights
-        rank = np.linalg.matrix_rank(wts[0])    
-        df[layer.name] = rank
-    return df
 
-def eval_pca(std_wts,row):
-    from sklearn.decomposition import PCA
-    
-    low_rank_wts = []
-    idx = 0
-    for idx in range(0,len(row)):
-        # Apply PCA to find the principal components
-        rank = int(row[idx])
-        pca = PCA(n_components=rank)
-        pca.fit(std_wts[idx])
-        # Transform the data using the selected principal components
-        approximation = pca.transform(std_wts[idx])
-        # Reconstruct the matrix using the reduced number of principal components
-        reconstructed_wts = pca.inverse_transform(approximation)
-        low_rank_wts.append(reconstructed_wts)
-    return low_rank_wts
+def layer_wise_pruning():
+    """
+    prunes a single layer each time    
 
-def evaluate_models(df, std_model, model, low_rank_wts, test_img, test_labels):
-    idx = 0
-    for layer in std_model.layers:
-        if not isinstance(layer, keras.layers.Dense) or layer.name == "output":
-            continue
-        wts = low_rank_wts[idx]
-        idx += 1
-        layer_wts = layer.get_weights()
-        layer_wts[0] = wts
-        layer.set_weights(layer_wts)
-    eval_result = std_model.evaluate(test_img,test_labels)
-    df["Standard Low Rank Model-Loss"] = eval_result[0]
-    df["Standard Low Rank Model-Accuracy"] = eval_result[1]
-    df["Standard Low Rank Model-Top1"] = eval_result[2]
-    df["Standard Low Rank Model-Top5"] = eval_result[3]
+    Returns
+    -------
+    None.
+
+    """
+    log_dir = "layer_prune"
+    model_run = mr.ModelRun(db)
     
-    eval_result = model.evaluate(test_img,test_labels)
-    df["Model-Loss"] = eval_result[0]
-    df["Model-Accuracy"] = eval_result[1]
-    df["Model-Top1"] = eval_result[2]
-    df["Model-Top5"] = eval_result[3]
+    log_handler = utils.LogHandler(log_dir, tensorboard_dir, prune_dir, 
+                               model_dir, plot_dir)
     
-    return df
+    prune_start_at = 80/100
+    f_acc = 98/100
+    prune_pct_lst = [80,85,90]
+    delta = 0.1
+    prune_type = "neuron_wts"
+    reset_neuron = False
     
-def evaluate_lowrank():
-    pca_model_dir = "/home/tushar/datadrive/Spyder/NetworkPruning/PrunedNetwork/LogDir/pca/models"
+    model_name = "layer_wise" 
+    model_name += "_PruningType_" + prune_type
+    if reset_neuron == True:
+        model_name += "_ResetNeuron"
+    model_name += "_EarlyStopping_" + str(delta)
     
-    # get the weghts of the standard model
-    std_dir = pca_model_dir + "/standard_2022_08_15-23_23_02"
-    std_model = keras.models.load_model(std_dir)
-    std_wts = [layer.get_weights()[0] for layer in std_model.layers if isinstance(layer, keras.layers.Dense) and layer.name != "output"]
+    model_name = utils.add_time_to_filename(model_name)
     
-    cwd = os.getcwd()
-    os.chdir(pca_model_dir)
-    idx = 0
-    df = pd.DataFrame(columns=["Model"])
+    log_handler.set_log_filename(model_name)
     
-    data_obj = data.Data(db)
-    (train_img,valid_img,test_img,
-     train_labels,valid_labels,test_labels) = data_obj.load_data()
+    #model_run.set_log_handler(log_handler)
     
-    for m_dir in glob.glob("*"):
-        df_new = pd.DataFrame([[m_dir]],columns=["Model"])
-        model = keras.models.load_model(m_dir)
-        df_new = get_rank(model,df_new)
-        low_rank_wts = eval_pca(std_wts,df_new.iloc[-1][1:])
-        df_new = evaluate_models(df_new, std_model, model, 
-                                 low_rank_wts, test_img, test_labels)
-        df = pd.concat([df,df_new])
-    os.chdir(cwd)
-    return df
+    model_run.evaluate_layer_wise(run_type="layer_wise", 
+                                  prune_start_at_acc = prune_start_at,
+                                  final_acc = f_acc,
+                                  prune_pct = prune_pct_lst[0],
+                                  neuron_update = "ctr",
+                                  pruning_type = prune_type,
+                                  reset_neuron = reset_neuron,
+                                  early_stopping_delta=delta,
+                                  log_handler = log_handler)
     
-pca_dir = "/home/tushar/datadrive/Spyder/NetworkPruning/PrunedNetwork/LogDir/pca"
-filename = pca_dir + "/result.xlsx"
-df = evaluate_lowrank()
-df.to_excel(filename, index=False)
+    log_handler.log_single_run(model_name)
+    
+    prune_model_name = log_handler.get_modelname()
+    model_run.save_model(prune_model_name)
+                        
+    prune_filename = utils.add_time_to_filename("prune_details")
+    log_handler.set_log_filename(prune_filename)
+    log_handler.write_to_file(prune_filename)
+    del model_run
+
+layer_wise_pruning()
+
 
 def heatmap():
     matrix_heatmap_dir = root_log_dir+ "/matrix_heatmap/"

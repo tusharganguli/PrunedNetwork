@@ -7,11 +7,142 @@ Created on Thu Sep  9 18:03:11 2021
 """
 import tensorflow as tf
 from tensorflow import keras
-from tensorflow.keras import backend as K
 from keras import models
 import numpy as np
 import pandas as pd
 
+import utils
+
+class PruneLayer:
+    def __init__(self, model, prune_pct):
+        self.model = model
+        self.layer_indices = self.__get_layer_indices()
+        self.prune_pct = prune_pct
+        
+        # count of total trainable variables
+        self.trainable_wts_detail = self.get_prune_summary()
+        # stores how many weights have been pruned
+        self.pruned_wts = 0
+        # signifies the layer which is to be pruned
+        self.current_layer = 0
+        # this is the way the neuron will be updated, although we now 
+        # only use the ctr mode
+        self.neuron_update_type = "ctr"
+        
+    def __del__(self):
+        del self.model
+        del self.layer_indices
+        del self.prune_pct
+        del self.trainable_wts_detail
+        del self.pruned_wts
+        del self.current_layer
+        del self.neuron_update_type
+        
+    def __get_layer_indices(self):
+        layer_indices = []
+        current_layer_idx = -1
+        
+        for layer in self.model.layers:
+            current_layer_idx += 1
+            if  not isinstance(layer,keras.layers.Dense) or layer.name == "output":
+                continue    
+            layer_indices.append(current_layer_idx)
+        return layer_indices
+    
+    def get_prune_summary(self):
+        trainable_wts_cnt = 0
+        trainable_wts = self.model.trainable_weights
+        pruned_wts_cnt = 0
+        for wts in trainable_wts:
+            if "kernel" in wts.name:
+                trainable_wts_cnt = tf.add(trainable_wts_cnt,tf.size(wts))
+                kernel_arr = wts.numpy()
+                num_zeros = tf.size(kernel_arr[np.where(kernel_arr == 0)])
+                pruned_wts_cnt = tf.add(pruned_wts_cnt,num_zeros)
+        
+        prune_pct = (pruned_wts_cnt/trainable_wts_cnt)*100
+        return (trainable_wts_cnt,pruned_wts_cnt,prune_pct)
+    
+    def get_prune_pct(self):
+        return (self.pruned_wts/self.trainable_wts_detail[0])*100
+        
+    def get_zeros(self):
+        wts = self.model.trainable_variables
+        num_zeros = 0
+        for w in wts:
+            if "kernel" in w.name:
+                kernel = w.numpy()
+                num_zeros += kernel[np.where(kernel == 0)].size
+        return num_zeros
+
+    def __update_neuron_frequency(self,data):
+        output_layer = self.model.layers[self.layer_indices[self.current_layer]]
+        activation_model = models.Model(inputs=self.model.input, 
+                                        outputs=output_layer.output)
+        activation_data = activation_model(data)
+    
+        condition = tf.equal(activation_data, 0)
+        int_tensor = tf.cast(tf.where(condition, 1, 0), tf.int32)
+        neuron_freq = tf.reduce_sum(int_tensor,axis=0)
+        return neuron_freq
+    
+    def enable_pruning(self):
+        self.model.enable_pruning()
+         
+    # todo: add logic to remove already zero wts 
+    def prune(self, pruning_type, data):
+        layer = self.model.layers[self.layer_indices[self.current_layer]]
+        
+        weights = layer.get_weights()
+        neuron_freq = self.__update_neuron_frequency(data)
+        
+        kernel = weights[0]
+        rows,cols = kernel.shape
+        
+        if pruning_type == "neuron":
+            prod = neuron_freq
+            
+            # Enumerate the vector to get (index, value) pairs
+            indexed_vector = list(enumerate(prod))
+            
+            # Sort the indexed vector based on values (second element of each tuple)
+            sorted_vector = sorted(indexed_vector, key=lambda x: x[1])
+    
+            # Extract the sorted indexes
+            sorted_indexes = [index for index, _ in sorted_vector]
+            
+            idx = tf.cast(len(sorted_indexes) * (self.prune_pct/100),dtype=tf.int32)
+            
+            # this will be a constant data for neuron based pruning
+            pruned_wts = kernel.shape[0]
+            
+            for i in range(0,idx):
+                prune_idx = sorted_indexes[i]
+                kernel[:,prune_idx] = 0
+                self.pruned_wts += pruned_wts
+        else:
+            # we consider the absolute value of the weights
+            prod = np.abs(kernel*neuron_freq.numpy())
+            total_len = prod.shape[0] * prod.shape[1]
+            idx = int(total_len *self.prune_pct/100)
+            
+            flatten_prod = prod.flatten()
+            indices = np.argsort(flatten_prod)[:idx]
+
+            flatten_wts = kernel.flatten()
+            # Set the k lowest values to 0 in the flattened matrix
+            flatten_wts[indices] = 0
+            
+            # Reshape the flattened matrix back to its original shape
+            kernel = flatten_wts.reshape(kernel.shape)
+            
+            self.pruned_wts += len(indices)
+             
+        weights[0] = kernel
+        layer.set_weights(weights)
+        self.current_layer += 1
+        
+        
 class PruneNetwork:
     def __init__(self, model):
         self.model = model
