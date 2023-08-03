@@ -106,7 +106,7 @@ def matrix_heatmap(std_dir, freq_model_dir,
         im1 = ax1.imshow(s_bool, cmap='hot', interpolation='nearest')
         im1.set_clim(0,1)
         
-        ax2.set_title('Frequency')
+        ax2.set_title('Activation-Based')
         im2 = ax2.imshow(f_bool, cmap='hot', interpolation='nearest')
         im2.set_clim(0,1)
         

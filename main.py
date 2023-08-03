@@ -32,7 +32,90 @@ prune_trained_model_dir = model_dir
 train_pruned_model_dir = model_dir
 plot_dir = "plots"
 
+def train_pruned(pruned_model_name):
+    log_dir = "/train_pruned"
+    r_type="train_pruned"
+    final_acc = 0.98
+    log_filename = pruned_model_name + "train_pruned"
+    es_delta = 0.1
+    
+    model_run = mr.ModelRun(db)
+    log_handler = utils.LogHandler(log_dir, tensorboard_dir, prune_dir, 
+                               model_dir, plot_dir)
+    
+    model_name = utils.add_time_to_filename(log_filename)
+    log_handler.set_log_filename(model_name)
+    
+    pruned_model = keras.models.load_model(pruned_model_name) 
+    
+    model_run.train_pruned_model(r_type,pruned_model, 
+                                 final_acc, es_delta, log_handler)
+    model_name = log_handler.get_modelname()
+    model_run.save_model(model_name)
+    
+    del pruned_model
+    
+    prune_filename = utils.add_time_to_filename("prune_details")
+    log_handler.set_log_filename(prune_filename)
+    log_handler.write_to_file(prune_filename)
+    
+    return model_name
 
+# root_log_dir   
+#freq_pruned_model_dir = "./prune_trained/model/prune_trained_NumPruning_5_NeuronUpdate_ctr_PruningType_neuron_wts_EarlyStopping_0.1_2022_08_19-12_02_11"
+#tf_pruned_model_dir = "./tf_prune_trained/model"
+#train_pruned(freq_pruned_model_dir, tf_pruned_model_dir)
+
+def __get_rank(model, model_name, processing, df_rank):
+    rank_lst = []
+    rank_lst.append(model_name)
+    rank_lst.append(processing)
+    
+    for layer in model.layers:
+        if not isinstance(layer,keras.layers.Dense) or layer.name == "output":
+            continue
+        wts = layer.weights
+        rank = np.linalg.matrix_rank(wts[0])
+        rank_lst.append(rank)
+        
+    # Append the list as a new row to the DataFrame
+    #df_rank = df_rank.append(pd.Series(rank_lst, index=df_rank.columns), ignore_index=True)
+    
+    # Convert the list to a DataFrame
+    new_row_df = pd.DataFrame([rank_lst], columns=df_rank.columns)
+
+    # Concatenate the new row DataFrame with the original DataFrame
+    df_rank = pd.concat([df_rank, new_row_df], ignore_index=True)
+    return df_rank
+
+def get_rank_pre_post_training():
+    #prune_dir = root_log_dir + "/cip/test"
+    prune_dir = root_log_dir + "/pre_post_training"
+    
+    cwd = os.getcwd()
+    os.chdir(prune_dir)
+    
+    # Column names for the DataFrame
+    column_names = ['Model Name','Processing','Layer 1', 'Layer 2', 'Layer 3', 'Layer 4']
+
+    # Create an empty DataFrame with the specified column names
+    df_rank = pd.DataFrame(columns=column_names)
+    
+    for m_dir in glob.glob("*"):
+        model = keras.models.load_model(m_dir)
+        df_rank = __get_rank(model, m_dir, "Pre", df_rank)
+        model_name = train_pruned(m_dir)
+        model = keras.models.load_model(model_name)
+        df_rank = __get_rank(model, m_dir, "Post", df_rank)
+        del model
+        
+    file_path = "../rank_pre_post_training.xlsx"
+    # Write the DataFrame to Excel
+    df_rank.to_excel(file_path, index=False)
+    os.chdir(cwd)
+get_rank_pre_post_training()
+
+    
 def train_lowrank_models(database):
     import model_run as mr
     
@@ -115,67 +198,47 @@ def layer_wise_pruning():
     f_acc = 98/100
     prune_pct_lst = [80,85,90]
     delta = 0.1
-    prune_type = "neuron_wts"
+    prune_type = ["neuron","neuron_wts"]
     reset_neuron = False
     
-    model_name = "layer_wise" 
-    model_name += "_PruningType_" + prune_type
-    if reset_neuron == True:
-        model_name += "_ResetNeuron"
-    model_name += "_EarlyStopping_" + str(delta)
-    
-    model_name = utils.add_time_to_filename(model_name)
-    
-    log_handler.set_log_filename(model_name)
     
     #model_run.set_log_handler(log_handler)
     
-    model_run.evaluate_layer_wise(run_type="layer_wise", 
-                                  prune_start_at_acc = prune_start_at,
-                                  final_acc = f_acc,
-                                  prune_pct = prune_pct_lst[0],
-                                  neuron_update = "ctr",
-                                  pruning_type = prune_type,
-                                  reset_neuron = reset_neuron,
-                                  early_stopping_delta=delta,
-                                  log_handler = log_handler)
-    
-    log_handler.log_single_run(model_name)
-    
-    prune_model_name = log_handler.get_modelname()
-    model_run.save_model(prune_model_name)
+    for ptype in prune_type:
+        for pct in prune_pct_lst:
+            model_name = "layer_wise" 
+            model_name += "_PruningType_" + ptype
+            model_name += "_PrunePct_" + str(pct)
+            model_name += "_EarlyStopping_" + str(delta)
+            
+            model_name = utils.add_time_to_filename(model_name)
+            
+            log_handler.set_log_filename(model_name)
+            
+            model_run.evaluate_layer_wise(run_type="layer_wise", 
+                                          prune_start_at_acc = prune_start_at,
+                                          final_acc = f_acc,
+                                          prune_pct = pct,
+                                          neuron_update = "ctr",
+                                          pruning_type = ptype,
+                                          reset_neuron = reset_neuron,
+                                          early_stopping_delta=delta,
+                                          log_handler = log_handler)
+            
+            log_handler.log_single_run(model_name)
+            
+            prune_model_name = log_handler.get_modelname()
+            model_run.save_model(prune_model_name)
                         
     prune_filename = utils.add_time_to_filename("prune_details")
     log_handler.set_log_filename(prune_filename)
     log_handler.write_to_file(prune_filename)
     del model_run
 
-layer_wise_pruning()
+#layer_wise_pruning()
 
 
-def heatmap():
-    matrix_heatmap_dir = root_log_dir+ "/matrix_heatmap/"
-    if not os.path.exists(matrix_heatmap_dir):
-        os.makedirs(matrix_heatmap_dir)
-    
-    dir_lst = []
-    dir_lst.append(root_log_dir + "/standard/model/standard_2022_08_15-23_23_02")
-    dir_lst.append(root_log_dir+ "/cip/model/cip_NumPruning_2_PrunePct_70_NeuronUpdate_ctr_PruningType_neuron_wts_EarlyStopping_0.1_2023_05_30-20_19_09")
-    dir_lst.append(root_log_dir + "/prune_fully_dense_network/model/prune_fully_dense_network_NumPruning_2_PrunePct_70_NeuronUpdate_ctr_PruningType_neuron_wts_EarlyStopping_0.1_2023_05_30-19_34_03")        
-    
-    title_lst = []
-    title_lst.append("Standard")
-    title_lst.append("cip")
-    title_lst.append("Fully Dense")
-    
-    prefix = "pruned"
-    
-    gp.generate_matrix_heatmap(dir_lst,title_lst, matrix_heatmap_dir, prefix)
-
-#heatmap()
-
-std_full_dense_dir = model_dir + "/standard_full_dense"
-std_dir = model_dir + "/standard"
+#std_dir = model_dir + "/standard"
 run_cnt = 3
 
 def train_standard():
@@ -316,62 +379,6 @@ def cip_pruning():
 
 #cip_pruning()
 
-def cip_test():
-    log_dir = "activation_test"
-    model_run = mr.ModelRun(db)
-    log_handler = utils.LogHandler(log_dir, tensorboard_dir, prune_dir, 
-                               model_dir, plot_dir)
-    
-    
-    prune_start_at = 80/100
-    n_pruning = 10
-    f_acc = 98/100
-    prune_pct = 80
-    r_neuron = True
-    delta = 0.1
-    
-    # neuron_update: ctr,act,act_acc
-    n_update = "act"
-    # pruning_type: neuron, neuron_wts
-    p_type = "neuron"
-    
-    model_name = "cip" 
-    #model_name += "_PruneStart_" + str(prune_start_at)
-    model_name += "_NumPruning_" + str(n_pruning)
-    model_name += "_PrunePct_" + str(prune_pct)
-    #model_name += "_FinalAcc_" + str(f_acc)
-    model_name += "_NeuronUpdate_" + n_update
-    model_name += "_PruningType_" + p_type
-    if r_neuron == True:
-        model_name += "_ResetNeuron"
-    model_name += "_EarlyStopping_" + str(delta)
-    
-    model_name = utils.add_time_to_filename(model_name)
-    
-    log_handler.set_log_filename(model_name)
-    
-    model_run.evaluate_cip(run_type="cip", 
-                           prune_start_at_acc = prune_start_at,
-                           num_pruning = n_pruning,
-                           final_acc = f_acc,
-                           prune_pct = prune_pct,
-                           neuron_update = n_update,
-                           pruning_type = p_type,
-                           reset_neuron = r_neuron,
-                           early_stopping_delta=delta,
-                           log_handler = log_handler)
-    
-    log_handler.log_single_run(model_name)
-    prune_model_name = log_handler.get_modelname()
-    model_run.save_model(prune_model_name)
-    
-    prune_filename = utils.add_time_to_filename("prune_details")
-    log_handler.set_log_filename(prune_filename)
-    log_handler.write_to_file(prune_filename)
-    del model_run
-
-#cip_test()
-
 def prune_standard_tf(trained_model_dir,
                       tf_pruned_model_dir):
     trained_model = keras.models.load_model(trained_model_dir)    
@@ -455,55 +462,6 @@ def prune_trained(trained_model_dir):
 #prune_trained( trained_model_dir )
 
 
-def train_pruned(freq_pruned_model_dir, tf_pruned_model_dir):
-    log_dir = "train_pruned"
-    r_type="train_pruned"
-    final_acc = 0.98
-    log_filename = "train_pruned"
-    es_delta = 0.1
-    
-    model_run = mr.ModelRun(db)
-    log_handler = utils.LogHandler(log_dir, tensorboard_dir, prune_dir, 
-                               model_dir, plot_dir)
-    
-    model_name = utils.add_time_to_filename(log_filename)
-    model_name  = "tf_" + model_name
-    log_handler.set_log_filename(model_name)
-    
-    tf_pruned_model = keras.models.load_model(tf_pruned_model_dir) 
-    
-    model_run.train_pruned_model(r_type,tf_pruned_model, 
-                                 final_acc, es_delta, log_handler)
-    model_name = log_handler.get_modelname()
-    model_run.save_model(model_name)
-    
-    del tf_pruned_model
-    
-    model_name = utils.add_time_to_filename(log_filename)
-    model_name  = "freq_" + model_name
-    log_handler.set_log_filename(model_name)
-    
-    #filename = m_dir.split("/")[-1]
-    #model_name = utils.add_time_to_filename(filename)
-    #log_handler.set_log_filename(model_name)
-    
-    freq_pruned_model = keras.models.load_model(freq_pruned_model_dir)
-    
-    model_run.train_pruned_model(r_type,freq_pruned_model, 
-                                 final_acc, es_delta, log_handler)
-    model_name = log_handler.get_modelname()
-    model_run.save_model(model_name)
-    del freq_pruned_model
-    
-    prune_filename = utils.add_time_to_filename("prune_details")
-    log_handler.set_log_filename(prune_filename)
-    log_handler.write_to_file(prune_filename)
-    
-
-    
-#freq_pruned_model_dir = "./prune_trained/model/prune_trained_NumPruning_5_NeuronUpdate_ctr_PruningType_neuron_wts_EarlyStopping_0.1_2022_08_19-12_02_11"
-#tf_pruned_model_dir = "./tf_prune_trained/model"
-#train_pruned(freq_pruned_model_dir, tf_pruned_model_dir)
 
 
 def matrix_norms(std_dir):
