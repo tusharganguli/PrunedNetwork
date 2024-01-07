@@ -13,6 +13,7 @@ import glob
 import os
 import pandas as pd
 import numpy as np
+import tensorflow as tf
 
 import model_run as mr
 import generate_plots as gp
@@ -22,7 +23,6 @@ import pca_analysis as pa
 
 
 
-db = keras.datasets.fashion_mnist
 f_acc = 0.98
 root_log_dir = "../LogDir"
 model_dir = "model"
@@ -32,6 +32,121 @@ prune_trained_model_dir = model_dir
 train_pruned_model_dir = model_dir
 plot_dir = "plots"
 
+
+   
+# Function to calculate FLOPS for a dense layer
+def calculate_flops_for_dense(layer):
+    # Count non-zero weights
+    wts = layer.get_weights()[0]
+    
+    total_wts = wts.size
+    nonzero_wts = np.count_nonzero(wts)
+    
+    # each weight will be involved in one multiplication and one addition with the input.
+    flops_bef = 2 * total_wts
+    flops_aft = 2 * nonzero_wts
+    return flops_bef,flops_aft
+
+
+def calculate_ops(model):
+    total_flops_bef = total_flops_aft = 0
+    
+    # Calculate FLOPS for each layer
+    for layer in model.layers:
+        if isinstance(layer, tf.keras.layers.Dense):
+            layer_flops_bef,layer_flops_aft = calculate_flops_for_dense(layer)
+            total_flops_bef += layer_flops_bef
+            total_flops_aft += layer_flops_aft
+    
+    #print(f"Total FLOPS with non-zero weights: {total_flops}")
+    return total_flops_bef,total_flops_aft
+ 
+def calculate_model_flops(model, test_img,test_label):
+    import time
+
+    # Total operations
+    flops_bef,flops_aft = calculate_ops(model)
+    
+    # perform inference here
+    #start_time = time.time()
+    #eval_result = model.evaluate(test_img,test_label)
+    #end_time = time.time()
+    
+    #inference_time = end_time - start_time
+    
+    # Calculating FLOPS
+    #flops = total_ops# / inference_time
+    kflops_bef = flops_bef/1000
+    kflops_aft = flops_aft/1000
+    pct_change = (kflops_bef-kflops_aft)*100/kflops_bef
+    #print(f"FLOPS during inference: {flops}")
+    return kflops_bef,kflops_aft,pct_change
+
+def calculate_flops():
+    import time
+    
+    prune_dir = root_log_dir + "/flops/model"
+    
+    cwd = os.getcwd()
+    os.chdir(prune_dir)
+    
+    # Column names for the DataFrame
+    column_names = ['Model Name','kflops Before Pruning','kflops After Pruning','Percentage Change']
+    # Create an empty DataFrame with the specified column names
+    df_flops = pd.DataFrame(columns=column_names)
+
+    
+    data_obj = data.Data(keras.datasets.fashion_mnist)
+    (train_img,valid_img,test_img,
+     train_labels,valid_labels,test_labels) = data_obj.load_data()
+    
+    for m_dir in glob.glob("*"):
+        model = keras.models.load_model(m_dir)
+        kflops_bef,kflops_aft,pct_change = calculate_model_flops(model,test_img,test_labels)
+        # Convert the list to a DataFrame
+        new_row_df = pd.DataFrame([[m_dir,kflops_bef,kflops_aft,pct_change]], columns=df_flops.columns)
+        # Concatenate the new row DataFrame with the original DataFrame
+        df_flops = pd.concat([df_flops, new_row_df], ignore_index=True)
+        del model
+     
+    
+    file_path = "../inference_flops.xlsx"
+    # Write the DataFrame to Excel
+    df_flops.to_excel(file_path, index=False)
+    
+    os.chdir(cwd)
+
+calculate_flops()
+
+def analyze_singular_values():
+    log_dir = "standard"
+    model_run = mr.ModelRun()
+    
+    log_handler = utils.LogHandler(log_dir, tensorboard_dir, prune_dir, 
+                                   model_dir, plot_dir)
+    
+    model_name = "standard"
+    model_name = utils.add_time_to_filename(model_name)
+    log_handler.set_log_filename(model_name)
+    
+    svd_list = [0.80,0.85]
+    model_run.evaluate_singular_values(run_type="standard",
+                                       svd_list = svd_list,
+                                       final_acc = f_acc,
+                                       es_delta = 0.1,
+                                       log_handler = log_handler)
+    
+    std_model_name = log_handler.get_modelname()
+    model_run.save_model(std_model_name)
+    
+    prune_filename = utils.add_time_to_filename("prune_details")
+    log_handler.set_log_filename(prune_filename)
+    log_handler.write_to_file(prune_filename)
+    del model_run
+
+#analyze_singular_values()
+
+
 def train_pruned(pruned_model_name):
     log_dir = "/train_pruned"
     r_type="train_pruned"
@@ -39,7 +154,7 @@ def train_pruned(pruned_model_name):
     log_filename = pruned_model_name + "train_pruned"
     es_delta = 0.1
     
-    model_run = mr.ModelRun(db)
+    model_run = mr.ModelRun()
     log_handler = utils.LogHandler(log_dir, tensorboard_dir, prune_dir, 
                                model_dir, plot_dir)
     
@@ -113,7 +228,8 @@ def get_rank_pre_post_training():
     # Write the DataFrame to Excel
     df_rank.to_excel(file_path, index=False)
     os.chdir(cwd)
-get_rank_pre_post_training()
+
+#get_rank_pre_post_training()
 
     
 def train_lowrank_models(database):
@@ -161,20 +277,20 @@ plots = gp.Plots(experiment_id)
 #plots.AnalyzeLoss(prune_dir)
 plots.ConvertToEps(prune_dir)
 """
-    
+        
 def generate_tb_data():
-    experiment_id = "Qf3qKjq6Rxu9iG5LLUOnWQ"
-    tbdev_dir = "cip/tb_dev_data"
+    #experiment_id = "Qf3qKjq6Rxu9iG5LLUOnWQ"
+    tbdev_dir = "../../PruningWithKeras/cip/tb_dev_data"
     file_name="IntervalPruning"
     #gp.Plots.download_and_save(experiment_id, tbdev_dir, file_name)
     
     
-    tbdev_plot_dir = "cip/tb_dev_results"
+    tbdev_plot_dir = "../../PruningWithKeras/cip/tb_dev_results"
     tbdev_file_name = tbdev_dir + "/" + file_name + ".xls"
-    prune_filename = "cip/" + prune_dir + "/prunedetails.xlsx"
+    prune_filename = "../../PruningWithKeras/cip/" + prune_dir + "/prune_details.xlsx"
     plots = gp.Plots(tbdev_file_name, prune_filename)
     plots.PlotIntervalPruning(tbdev_plot_dir)
-    gp.Plots.ConvertToEps(tbdev_plot_dir)
+    #gp.Plots.ConvertToEps(tbdev_plot_dir)
     
 #generate_tb_data()
 
@@ -189,7 +305,7 @@ def layer_wise_pruning():
 
     """
     log_dir = "layer_prune"
-    model_run = mr.ModelRun(db)
+    model_run = mr.ModelRun()
     
     log_handler = utils.LogHandler(log_dir, tensorboard_dir, prune_dir, 
                                model_dir, plot_dir)
@@ -243,7 +359,7 @@ run_cnt = 3
 
 def train_standard():
     log_dir = "standard"
-    model_run = mr.ModelRun(db)
+    model_run = mr.ModelRun()
     
     log_handler = utils.LogHandler(log_dir, tensorboard_dir, prune_dir, 
                                    model_dir, plot_dir)
@@ -274,7 +390,7 @@ def train_standard():
 
 def train_standard_with_regularization():
     log_dir = "standard_with_regularization"
-    model_run = mr.ModelRun(db)
+    model_run = mr.ModelRun()
     
     log_handler = utils.LogHandler(log_dir, tensorboard_dir, prune_dir, 
                                    model_dir, plot_dir)
@@ -285,9 +401,10 @@ def train_standard_with_regularization():
     
     #neuron_lst = [300,300,300]
     #model = model_run.create_full_dense_model("standard",neuron_lst)
-    
+    start_acc = 0.92
     model_run.evaluate_standard_with_regularizer(run_type="standard_with_regularization",
                                 num_runs=run_cnt, 
+                                start_acc = start_acc,
                                 final_acc = f_acc,
                                 es_delta = 0.1,
                                 log_handler = log_handler)
@@ -314,13 +431,13 @@ def cip_pruning():
 
     """
     log_dir = "cip"
-    model_run = mr.ModelRun(db)
+    model_run = mr.ModelRun()
     
     log_handler = utils.LogHandler(log_dir, tensorboard_dir, prune_dir, 
                                model_dir, plot_dir)
     
     prune_start_at = 80/100
-    n_pruning_lst = [10]
+    n_pruning_lst = [5,10]
     f_acc = 98/100
     prune_pct_lst = [80,85,90]
     #r_neuron = False
@@ -381,6 +498,7 @@ def cip_pruning():
 
 def prune_standard_tf(trained_model_dir,
                       tf_pruned_model_dir):
+    db = keras.datasets.fashion_mnist
     trained_model = keras.models.load_model(trained_model_dir)    
     
     initial_sparsity=0
@@ -419,7 +537,7 @@ def prune_trained(trained_model_dir):
     #neuron_update_list = ["ctr","act","act_acc"]
     #prune_type_list = ["neuron","neuron_wts"]
     
-    model_run = mr.ModelRun(db)
+    model_run = mr.ModelRun()
     log_handler = utils.LogHandler(log_dir, tensorboard_dir, prune_dir, 
                                model_dir, plot_dir)
     
@@ -461,9 +579,6 @@ def prune_trained(trained_model_dir):
 #trained_model_dir = "./standard/model/standard_2022_08_15-23_23_02"    
 #prune_trained( trained_model_dir )
 
-
-
-
 def matrix_norms(std_dir):
     std_model = keras.models.load_model(std_dir)
     #tf_model = keras.models.load_model(tf_dir)
@@ -486,28 +601,29 @@ tf_dir = model_dir + "/tf_pruned"
 
 
 def matrix_heatmap():    
-    matrix_heatmap_dir = "./train_pruned/matrix_heatmap/"
+    matrix_heatmap_dir = root_log_dir + "/matrix_heatmap/"
     if not os.path.exists(matrix_heatmap_dir):
         os.makedirs(matrix_heatmap_dir)
     
     svd_plots = gp.SVDPlots()
     
-    std_dir = "./standard/model/standard_2022_08_15-23_23_02"
-    freq_dir = "./prune_trained/model/prune_trained_NumPruning_5_NeuronUpdate_ctr_PruningType_neuron_wts_EarlyStopping_0.1_2022_08_19-12_02_11"
-    tf_dir = "./tf_prune_trained/model"        
+    #std_dir = root_log_dir + "/standard/model/standard_2022_08_15-23_23_02"
+    freq_dir = root_log_dir + "/pre_post_training/cip_NumPruning_5_PrunePct_80_NeuronUpdate_ctr_PruningType_neuron_EarlyStopping_0.1_2022_08_06-00_37_53"
+    tf_dir = root_log_dir + "/pre_post_training/tf_std_pruned"        
     
     prefix = "pruned"
-    gp.matrix_heatmap( std_dir, freq_dir, tf_dir, matrix_heatmap_dir, prefix)
-    svd_plots.ConvertToEps(matrix_heatmap_dir)
+    gp.matrix_heatmap( freq_dir, tf_dir, matrix_heatmap_dir, prefix)
+    #svd_plots.ConvertToEps(matrix_heatmap_dir)
 
 
-    std_dir = "./standard/model/standard_2022_08_15-23_23_02"
-    freq_dir = "./train_pruned/model/freq_train_pruned_2022_08_19-13_50_26"
-    tf_dir = "./train_pruned/model/tf_train_pruned_2022_08_19-13_44_17"        
+    retrain_loc = root_log_dir + "/LogDir/train_pruned/model"
+    #std_dir = root_log_dir + "/standard/model/standard_2022_08_15-23_23_02"
+    freq_dir = retrain_loc + "/cip_NumPruning_5_PrunePct_80_NeuronUpdate_ctr_PruningType_neuron_EarlyStopping_0.1_2022_08_06-00_37_53train_pruned_2023_08_02-15_38_09"
+    tf_dir = retrain_loc + "/tf_std_prunedtrain_pruned_2023_08_02-13_29_15"        
     
-    prefix = "trained"
-    gp.matrix_heatmap( std_dir, freq_dir, tf_dir, matrix_heatmap_dir, prefix)
-    svd_plots.ConvertToEps(matrix_heatmap_dir)
+    prefix = "retrained"
+    gp.matrix_heatmap( freq_dir, tf_dir, matrix_heatmap_dir, prefix)
+    #svd_plots.ConvertToEps(matrix_heatmap_dir)
 
 #matrix_heatmap()
 
@@ -518,7 +634,7 @@ def rewind_and_train(model_dir_name):
     f_acc = 98/100
     es_delta = 0.1
     
-    model_run = mr.ModelRun(db)
+    model_run = mr.ModelRun()
     log_handler = utils.LogHandler(log_dir, tensorboard_dir, prune_dir, 
                                model_dir, plot_dir)
     
@@ -619,82 +735,6 @@ model_dir = "./cip/model/" + model_name
 filename = model_dir + ".xlsx"
 #model_rank(model_dir, filename)
 
-
-def cnn_pruning():
-    """
-    Evaluates pruning after reaching specific training accuracy 
-    for each stage of pruning    
-
-    Returns
-    -------
-    None.
-
-    """
-    #data.Data.load_disk = classmethod(data.Data.load_disk)
-    #data.Data.load_disk()
-    
-    log_dir = "cnn"
-    model_run = mr.ModelRun(db)
-    
-    log_handler = utils.LogHandler(log_dir, tensorboard_dir, prune_dir, 
-                               model_dir, plot_dir)
-    
-    prune_start_at = 80/100
-    n_pruning = 3
-    f_acc = 98/100
-    prune_pct = 80
-    #r_neuron = False
-    delta = 0.1
-    
-    # neuron_update: ctr,act,act_acc
-    #n_update = "act"
-    # pruning_type: neuron, neuron_wts
-    #p_type = "neuron"
-    
-    neuron_update = "act"
-    prune_type = "neuron"
-    reset_neuron = False
-    
-    model_name = "cnn" 
-    #model_name += "_PruneStart_" + str(prune_start_at)
-    model_name += "_NumPruning_" + str(n_pruning)
-    model_name += "_PrunePct_" + str(prune_pct)
-    #model_name += "_FinalAcc_" + str(f_acc)
-    model_name += "_NeuronUpdate_" + neuron_update
-    model_name += "_PruningType_" + prune_type
-    if reset_neuron == True:
-        model_name += "_ResetNeuron"
-    model_name += "_EarlyStopping_" + str(delta)
-    
-    model_name = utils.add_time_to_filename(model_name)
-    
-    log_handler.set_log_filename(model_name)
-    
-    #model_run.set_log_handler(log_handler)
-    
-    model_run.evaluate_cnn(run_type="cnn", 
-                        prune_start_at_acc = prune_start_at,
-                        num_pruning = n_pruning,
-                        final_acc = f_acc,
-                        prune_pct = prune_pct,
-                        neuron_update = neuron_update,
-                        pruning_type = prune_type,
-                        reset_neuron = reset_neuron,
-                        early_stopping_delta=delta,
-                        log_handler = log_handler)
-    
-    #log_handler.log_single_run(model_name)
-    
-    prune_model_name = log_handler.get_modelname()
-    model_run.save_model(prune_model_name)
-    
-    prune_filename = utils.add_time_to_filename("prune_details")
-    log_handler.set_log_filename(prune_filename)
-    log_handler.write_to_file(prune_filename)
-    del model_run
-
-#cnn_pruning()
-
 def prune_fully_dense(nw_type):
     """
     Evaluates pruning after reaching specific training accuracy 
@@ -706,7 +746,7 @@ def prune_fully_dense(nw_type):
 
     """
     log_dir = nw_type
-    model_run = mr.ModelRun(db)
+    model_run = mr.ModelRun()
     
     log_handler = utils.LogHandler(log_dir, tensorboard_dir, prune_dir, 
                                model_dir, plot_dir)

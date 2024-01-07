@@ -19,11 +19,6 @@ from datetime import datetime
 import tempfile
 
 class LogHandler:
-    #df = pd.DataFrame(columns = ['Epoch', 
-    #                             'Total Trainable Wts',
-    #                             'Total Pruned Wts',
-    #                             'Prune Percentage'
-    #                             ])
     
     def __init__(self, log_dir, tensorboard_dir, prune_dir, 
                  model_dir, plot_dir): 
@@ -74,21 +69,6 @@ class LogHandler:
         del self.prune_dir
         del self.model_dir
         del self.plot_dir
-    
-    #def log(self, epoch, total_trainable_wts, total_pruned_wts, prune_pct):
-    #    log_data = [epoch,total_trainable_wts.numpy(),
-    #                total_pruned_wts.numpy(),
-    #                prune_pct.numpy()]
-    #    df2 = pd.DataFrame([log_data], columns=list(LogHandler.df))
-    #    LogHandler.df = LogHandler.df.append(df2,ignore_index = True)
-    
-    #def write_to_file(self):
-    #    writer = pd.ExcelWriter(self.prune_dir + self.log_filename + ".xls")
-    #    LogHandler.df.to_excel(writer)
-        # save the excel
-    #    writer.save()
-    #    LogHandler.df = LogHandler.df.iloc[0:0]
-    
 
     def __create_data_frame(self):
         
@@ -137,13 +117,6 @@ class LogHandler:
     def log_data(self, pruning_type, history, eval_result, 
                    num_epochs, prune_pct=0, prune_at_acc=0):
         
-        #(train_loss,train_accuracy, 
-        # val_loss, val_accuracy,
-        # test_loss, test_accuracy) = self.__generate_avg(history_list,
-        #                                                 evaluate_list)
-        #epoch_avg = sum(num_epoch_list)/len(num_epoch_list)
-        #prune_achieved_avg = sum(prune_pct_list)/len(prune_pct_list)
-        
         train_loss = history.history["loss"][1]
         #train_loss = sum(loss_lst)/len(loss_lst)
         train_acc = history.history["accuracy"][-1]
@@ -179,7 +152,6 @@ class LogHandler:
                     ]
         
         df2 = pd.DataFrame([log_data], columns=list(self.df))
-        #self.df = self.df.append(df2,ignore_index = True)
         self.df = pd.concat([self.df,df2], ignore_index=True)
     
     def __generate_avg( self, history_list, evaluate_list):
@@ -187,22 +159,6 @@ class LogHandler:
         train_loss = train_accuracy = val_loss = 0
         val_accuracy = test_loss = test_accuracy = 0
         
-        """
-        count = len(history_list)
-        for idx in range(count):
-            train_loss += history_list[idx].history["loss"][-1]
-            train_accuracy += history_list[idx].history["accuracy"][-1]
-            val_loss += history_list[idx].history["val_loss"][-1]
-            val_accuracy += history_list[idx].history["val_accuracy"][-1]
-            test_loss += evaluate_list[idx][0]
-            test_accuracy += evaluate_list[idx][1]
-        train_loss /= count
-        train_accuracy /= count
-        val_loss /= count
-        val_accuracy /= count
-        test_loss /= count
-        test_accuracy /= count
-        """
         train_loss = history_list[-1].history["loss"][-1]
         train_accuracy = history_list[-1].history["accuracy"][-1]
         val_loss = history_list[-1].history["val_loss"][-1]
@@ -335,35 +291,6 @@ def get_num_layers(model):
         layer_cnt += 1
     return layer_cnt
 
-    
-    
-"""
-def write_svd(self):        
-    from datetime import datetime
-    date = datetime.now().strftime("%Y%m%d-%H%M%S")
-    filename = "./svd/" + date + ".xls"
-    writer = pd.ExcelWriter(filename)
-    # write dataframe to excel
-    self.svd_df.to_excel(writer)
-    # save the excel
-    writer.save()
-    self.svd_df = self.svd_df.iloc[0:0]
-"""    
-"""
-    df = pd.DataFrame(data=wts.astype(float))
-    df.to_csv(filename+"_wts.csv",sep=' ', header=False, 
-              float_format='%.2f', index=False)
-    df = pd.DataFrame(data=u.astype(float))
-    df.to_csv(filename+"_u.csv",sep=' ', header=False, 
-              float_format='%.2f', index=False)
-    df = pd.DataFrame(data=s.astype(float))
-    df.to_csv(filename+"_s.csv",sep=' ', header=False, 
-              float_format='%.2f', index=False)
-    df = pd.DataFrame(data=vt.astype(float))
-    df.to_csv(filename+"_vt.csv",sep=' ', header=False, 
-              float_format='%.2f', index=False)
-"""
-
 def write(df, filename):
     
     #if not os.path.exists(filename):
@@ -404,7 +331,7 @@ def __compute_svd(model):
 
 def __compute_norm(M):
     """
-    Computes Spectral,Frobenious and Nuclear norm
+    Computes Spectral,Frobenius and Nuclear norm
 
     Parameters
     ----------

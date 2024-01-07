@@ -56,69 +56,75 @@ def generate_matrix_heatmap(dir_lst,title_lst, dir_name, prefix):
                 im = axs[s].imshow(bool_lst[s], cmap='hot', interpolation='nearest')
                 im.set_clim(0,1)
         
-        filename = dir_name + "/" + prefix + "_" + layer_name + ".png"
-        plt.savefig(filename, dpi=600)
+        filename = dir_name + "/" + prefix + "_" + layer_name + ".eps"
+        plt.savefig(filename, dpi=600, format='eps')
         plt.show()
         
 
-def matrix_heatmap(std_dir, freq_model_dir, 
-                   tf_model_dir, dir_name, prefix ):
+def matrix_heatmap(freq_model_dir, tf_model_dir, dir_name, prefix ):
     
-    std_model = keras.models.load_model(std_dir)    
+    #std_model = keras.models.load_model(std_dir)    
     freq_model = keras.models.load_model(freq_model_dir)    
     tf_model = keras.models.load_model(tf_model_dir)
     
     plt.rc('xtick', labelsize=6)    # fontsize of the tick labels
     plt.rc('ytick', labelsize=6)
+    plt.rcParams["font.family"] = "sans-serif"
+    plt.rcParams.update({'font.size': 10})
     
     idx = 0
     num_layers = len(freq_model.layers)
     for idx in range(num_layers):
-        s_layer = std_model.layers[idx]
+        #s_layer = std_model.layers[idx]
         f_layer = freq_model.layers[idx]
         tf_layer = tf_model.layers[idx]
         
         if not isinstance(f_layer,keras.layers.Dense):
             continue
-        layer_name = s_layer.name
+        layer_name = f_layer.name
         
-        s_wts = s_layer.get_weights()[0]
-        dim = s_wts.shape
+        #s_wts = s_layer.get_weights()[0]
+        #s_wts = np.abs(s_wts)
+        #dim = s_wts.shape
         
-        s_bool = s_wts > 0
-        s_bool = np.invert(s_bool)
+        #s_bool = s_wts > 0
+        #s_bool = np.invert(s_bool)
         
         f_wts = f_layer.get_weights()[0]
+        f_wts = np.abs(f_wts)
+        #dim = f_wts.shape
+        
         f_bool = f_wts > 0
         f_bool = np.invert(f_bool)
         
         tf_wts = tf_layer.get_weights()[0]
+        tf_wts = np.abs(tf_wts)
         tf_bool = tf_wts > 0
         tf_bool = np.invert(tf_bool)
         
         #c_bool = s_bool == f_bool
         
-        fig, (ax1,ax2,ax3) = plt.subplots(1,3)
-        title = layer_name + ": " + str(dim[0]) + "x" + str(dim[1])
-        fig.suptitle( title, fontsize=10)
+        fig, (ax1,ax2) = plt.subplots(1,2)
+        #title = layer_name + ": " + str(dim[0]) + "x" + str(dim[1])
+        #fig.suptitle( title, fontsize=10)
         
-        ax1.set_title('Standard')
-        im1 = ax1.imshow(s_bool, cmap='hot', interpolation='nearest')
+        #ax1.set_title('Standard')
+        #im1 = ax1.imshow(s_bool, cmap='hot', interpolation='nearest')
+        #im1.set_clim(0,1)
+        
+        ax1.set_title('Activation-based')
+        im1 = ax1.imshow(f_bool, cmap='hot', interpolation='nearest')
         im1.set_clim(0,1)
         
-        ax2.set_title('Activation-Based')
-        im2 = ax2.imshow(f_bool, cmap='hot', interpolation='nearest')
+        ax2.set_title('Magnitude-based')
+        im2 = ax2.imshow(tf_bool, cmap='hot', interpolation='nearest')
         im2.set_clim(0,1)
-        
-        ax3.set_title('Magnitude')
-        im3 = ax3.imshow(tf_bool, cmap='hot', interpolation='nearest')
-        im3.set_clim(0,1)
         
         #axs[1,1].set_title('Difference')
         #im4 = axs[1,1].imshow(c_bool, cmap='hot', interpolation='nearest')
         
-        filename = dir_name + "/" + prefix + "_" + layer_name + ".png"
-        plt.savefig(filename, dpi=600)
+        filename = dir_name + "/" + prefix + "_" + layer_name + ".eps"
+        plt.savefig(filename, dpi=600,format='eps')
         plt.show()
         
 
@@ -209,9 +215,9 @@ class SVDPlots():
         fig.suptitle(title)
         fig.supxlabel("Singular Values")
         fig.supylabel("Pct. Change")
-        filename = "relative_ratio_at_accuracy_" + str(format(curr_acc*100,".0f")) + ".pdf" 
+        filename = "relative_ratio_at_accuracy_" + str(format(curr_acc*100,".0f")) + ".eps" 
         filename = prune_dir + "/" + filename
-        plt.savefig(filename, dpi=600)
+        plt.savefig(filename, dpi=600, format='eps')
         plt.show()
         print("plot")
     
@@ -247,13 +253,22 @@ class SVDPlots():
         fig.suptitle(title)
         fig.supxlabel("Singular Values")
         fig.supylabel("Pct. Change")
-        filename = "final_ratio_at_accuracy_" + str(format(curr_acc*100,".0f")) + ".pdf" 
+        filename = "final_ratio_at_accuracy_" + str(format(curr_acc*100,".0f")) + ".eps" 
         filename = prune_dir + "/" + filename
-        plt.savefig(filename, dpi=600)
+        plt.savefig(filename, dpi=600, format='eps')
         plt.show()
         print("plot")
     
 class Plots():
+    
+    def __init__(self, tbdev_file_name, prune_filename):
+        
+        self.df = pd.read_excel(tbdev_file_name)
+        # the first row that we read from the excel file contains na values
+        self.df=self.df.dropna(how='all')
+        #self.pruning_df = pd.read_excel(prune_filename, usecols="A:E,G")
+        self.pruning_df = pd.read_excel(prune_filename)
+        self.pruning_df = self.pruning_df.dropna(how='all')
     
     def ConvertToEps(prune_dir):
         import glob, os
@@ -268,13 +283,6 @@ class Plots():
         file_name = tbdev_dir + "/" + file_name + ".xls"
         utils.write(df,file_name)
         
-    def __init__(self, tbdev_file_name, prune_filename):
-        
-        self.df = pd.read_excel(tbdev_file_name)
-        # the first row that we read from the excel file contains na values
-        self.df=self.df.dropna(how='all')
-        self.pruning_df = pd.read_excel(prune_filename, usecols="A:E,G")
-        self.pruning_df = self.pruning_df.dropna(how='all')
         
         
     def __GetData(self, filter_value):
@@ -290,12 +298,12 @@ class Plots():
         return new_data
     
     def __PlotData(self,data, hue, title, run_type, plot_type, legend_title):
-        plt.figure(figsize=(4.0, 2.8), dpi=600)
+        plt.figure(figsize=(5.0, 4.0), dpi=600)
         #plt.subplot(1, 2, 1)
         plt.grid()
         #plt.rcParams.update({'font.family':'sans-serif'})
-        plt.rcParams["font.family"] = "Times New Roman"
-        plt.rcParams.update({'font.size': 8})
+        plt.rcParams["font.family"] = "sans-serif"
+        plt.rcParams.update({'font.size': 10})
         
         ax = sns.lineplot(data=data, x="step", y="value", hue=hue, 
                           alpha=1, linewidth=0.8, ci=None)
@@ -347,7 +355,7 @@ class Plots():
         if not os.path.exists(dir_name):
             os.makedirs(dir_name)
         
-        plt.savefig(filename)
+        plt.savefig(filename, dpi=600, format='eps')
         plt.close()
         
     def __get_file_name(self, prune_dir, run_type, plot_type, filters):
@@ -355,7 +363,7 @@ class Plots():
         
         for f in filters:
             file_name +=  f + "_"
-        file_name += ".pdf"
+        file_name += ".eps"
         return file_name
                  
     def __get_legend_title(self, filter_lst, flags):
@@ -378,12 +386,12 @@ class Plots():
     
     def __get_true_pruning(self, row):
         pruning_df = self.pruning_df
-        if "ctr" in row:
-            pruning_df = pruning_df[pruning_df["NeuronUpdate"] == "ctr"]
-        elif "activacc" in row: 
-            pruning_df = pruning_df[pruning_df["NeuronUpdate"] == "activacc"]
-        elif "act" in row:
-            pruning_df = pruning_df[pruning_df["NeuronUpdate"] == "act"]
+        #if "ctr" in row:
+        #    pruning_df = pruning_df[pruning_df["NeuronUpdate"] == "ctr"]
+        #elif "activacc" in row: 
+        #    pruning_df = pruning_df[pruning_df["NeuronUpdate"] == "activacc"]
+        #elif "act" in row:
+        #    pruning_df = pruning_df[pruning_df["NeuronUpdate"] == "act"]
         
         if "neurwts" in row:
             pruning_df = pruning_df[pruning_df["PruningType"] == "neurwts"]
@@ -404,10 +412,10 @@ class Plots():
         elif "NumPruning_10_" in row:
             pruning_df = pruning_df[pruning_df["NumPruning"] == 10]
         
-        if "ResetNeuron" in row:
-            pruning_df = pruning_df[pruning_df["ResetNeuron"] == "Yes"]
-        else:
-            pruning_df = pruning_df[pruning_df["ResetNeuron"] == "No"]
+        #if "ResetNeuron" in row:
+        #    pruning_df = pruning_df[pruning_df["ResetNeuron"] == "Yes"]
+        #else:
+        #    pruning_df = pruning_df[pruning_df["ResetNeuron"] == "No"]
             
         return pruning_df["Pct Pruning"]
             
@@ -644,7 +652,7 @@ class Plots():
             filename =  prune_dir + "/ValidationAccuracy_ResetNeuron_" \
                         + interval_type + "_" + prune_type 
             
-        self.__SavePlot(filename + ".pdf")
+        self.__SavePlot(filename + ".eps")
 
     def __PlotEpochInterval(self, run_type, prune_dir, interval_type, reset_neuron=False):
         data = self.__GetData(run_type)
@@ -678,7 +686,7 @@ class Plots():
             title += "Disabled"
             filename += "_ResetNeuron_Disabled"
         self.__PlotData(data,hue_name, title, run_type)
-        self.__SavePlot(filename + ".pdf")
+        self.__SavePlot(filename + ".eps")
 
     def __PlotNumberOfPruning(self, run_type, prune_dir, 
                               total_pruning, reset_neuron=False):
@@ -714,7 +722,7 @@ class Plots():
             title += "Disabled"
             filename += "_ResetNeuron_Disabled"
         self.__PlotData(data,hue_name, title, run_type)
-        self.__SavePlot(filename + ".pdf")
+        self.__SavePlot(filename + ".eps")
         
     def AnalyzeLoss(self, prune_dir):
         self.__CalculateEILoss("train", prune_dir)
@@ -739,7 +747,7 @@ class Plots():
                         if "Epoch" in label.split("_")[4] else "Standard")
         min_val_loss['x'] = run
         self.__GeneratePlots(min_val_loss)
-        self.__SavePlot(prune_dir + "/" + run_type + "_loss_EpochInterval.pdf")
+        self.__SavePlot(prune_dir + "/" + run_type + "_loss_EpochInterval.eps")
         
     def __CalculateNumPruningLoss(self, run_type, prune_dir):
         data = self.__GetData(run_type)
@@ -760,7 +768,7 @@ class Plots():
         run = pd.concat([std_run,run])
         min_val_loss['x'] = run
         self.__GeneratePlots(min_val_loss)
-        self.__SavePlot(prune_dir + "/" + run_type + "_loss_NumPruning.pdf")
+        self.__SavePlot(prune_dir + "/" + run_type + "_loss_NumPruning.eps")
         
     def __CalculateResetNeuronLoss(self, run_type, prune_dir):
         data = self.__GetData(run_type)
@@ -802,11 +810,11 @@ class Plots():
         max_val_loss['x'] = max_run
         
         self.__GeneratePlots(mean_val_loss)
-        self.__SavePlot(prune_dir + "/" + run_type + "_mean_loss_ResetNeuron.pdf")
+        self.__SavePlot(prune_dir + "/" + run_type + "_mean_loss_ResetNeuron.eps")
         self.__GeneratePlots(min_val_loss)
-        self.__SavePlot(prune_dir + "/" + run_type + "_min_loss_ResetNeuron.pdf")
+        self.__SavePlot(prune_dir + "/" + run_type + "_min_loss_ResetNeuron.eps")
         self.__GeneratePlots(max_val_loss)
-        self.__SavePlot(prune_dir + "/" + run_type + "_max_loss_ResetNeuron.pdf")
+        self.__SavePlot(prune_dir + "/" + run_type + "_max_loss_ResetNeuron.eps")
         
     def __GeneratePlots(self,min_val_loss):
         bp = sns.boxplot(data=min_val_loss, y="value", x=min_val_loss.x,
@@ -828,7 +836,7 @@ class Plots():
         #    bp.text(xtick,medians[xtick] + vertical_offset,medians[xtick], 
         #    horizontalalignment='center',size='x-small',color='black',weight='semibold')
             
-        bp.set(xlabel='Run',ylabel='Epoch Loss')
+        bp.set(xlabel='Run',ylabel='Mean Epoch Loss')
         
 """
 #run1_training = df[df.run.str.contains(df.iloc[0].run)]
